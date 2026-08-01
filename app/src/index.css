@@ -27,6 +27,7 @@
 
   /* Status colors — added for the product pipeline, kept quiet/neutral to fit the system */
   --color-status-draft: #7a7a7a;
+  --color-status-extracted: #0e8a7d;
   --color-status-ready: #0066cc;
   --color-status-submitted: #b06f00;
   --color-status-approved: #1a8f4c;
