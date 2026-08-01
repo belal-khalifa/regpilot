@@ -142,22 +142,13 @@ export default function AppHome() {
       <GlobalNav />
       <section className="bg-canvas px-6 py-16">
         <div className="mx-auto flex max-w-[720px] flex-col gap-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="font-display text-[13px] font-semibold tracking-[0.231px] text-primary">
-                Signed in as {user?.email}
-              </p>
-              <h1 className="font-display text-[34px] font-semibold leading-[1.1] tracking-[-0.28px] text-ink">
-                {selectedCompany.name}
-              </h1>
-            </div>
-            <button
-              type="button"
-              onClick={() => supabase.auth.signOut()}
-              className="rounded-sm bg-ink px-[15px] py-2 font-text text-[14px] leading-[1.29] tracking-[-0.224px] text-on-dark active:scale-95 transition-transform"
-            >
-              Sign out
-            </button>
+          <div>
+            <p className="font-display text-[13px] font-semibold tracking-[0.231px] text-primary">
+              Signed in as {user?.email}
+            </p>
+            <h1 className="font-display text-[34px] font-semibold leading-[1.1] tracking-[-0.28px] text-ink">
+              {selectedCompany.name}
+            </h1>
           </div>
 
           {companies.length > 1 && (
