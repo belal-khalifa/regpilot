@@ -33,5 +33,26 @@ export function useProducts(companyId: string | null) {
     refresh()
   }, [refresh])
 
-  return { products, loading, error, refresh }
+  async function deleteProduct(product: Pick<Product, 'id'>) {
+    const { data: docs, error: docsError } = await supabase
+      .from('product_documents')
+      .select('storage_path')
+      .eq('product_id', product.id)
+    if (docsError) return { error: docsError.message }
+
+    if (docs && docs.length > 0) {
+      const { error: storageError } = await supabase.storage
+        .from('product-documents')
+        .remove(docs.map((d) => d.storage_path))
+      if (storageError) return { error: storageError.message }
+    }
+
+    const { error: deleteError } = await supabase.from('products').delete().eq('id', product.id)
+    if (deleteError) return { error: deleteError.message }
+
+    await refresh()
+    return { error: null }
+  }
+
+  return { products, loading, error, refresh, deleteProduct }
 }

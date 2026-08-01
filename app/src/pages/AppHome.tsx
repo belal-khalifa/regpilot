@@ -107,7 +107,19 @@ export default function AppHome() {
     products,
     loading: productsLoading,
     refresh: refreshProducts,
+    deleteProduct,
   } = useProducts(selectedCompanyId)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  async function handleDeleteProduct(product: { id: string; name: string }) {
+    if (!window.confirm(`Delete "${product.name}"? This also removes its uploaded documents.`)) {
+      return
+    }
+    setDeletingId(product.id)
+    const { error } = await deleteProduct(product)
+    setDeletingId(null)
+    if (error) window.alert(error)
+  }
 
   if (!authLoading && !session) {
     return <Navigate to="/login" replace />
@@ -235,16 +247,27 @@ export default function AppHome() {
             ) : (
               <ul className="flex flex-col gap-3">
                 {products.map((product) => (
-                  <li key={product.id}>
+                  <li
+                    key={product.id}
+                    className="flex items-center gap-3 rounded-lg border border-hairline bg-canvas pr-4 transition-colors hover:border-primary"
+                  >
                     <Link
                       to={`/app/products/${product.id}`}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-hairline bg-canvas px-6 py-5 transition-colors hover:border-primary"
+                      className="flex flex-1 items-center justify-between gap-3 px-6 py-5"
                     >
                       <span className="font-text text-[17px] font-semibold text-ink">
                         {product.name}
                       </span>
                       <StatusBadge status={product.status} />
                     </Link>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteProduct(product)}
+                      disabled={deletingId === product.id}
+                      className="shrink-0 font-text text-[13px] text-status-rejected disabled:opacity-60"
+                    >
+                      {deletingId === product.id ? 'Removing…' : 'Delete'}
+                    </button>
                   </li>
                 ))}
               </ul>
