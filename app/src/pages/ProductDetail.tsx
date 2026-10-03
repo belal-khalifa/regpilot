@@ -1,79 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import GlobalNav from '../components/GlobalNav'
-import StatusBadge from '../components/StatusBadge'
+import StatusSelect from '../components/StatusSelect'
 import DocumentUploadSection from '../components/DocumentUploadSection'
+import ExtractionReviewForm from '../components/ExtractionReviewForm'
 import { supabase } from '../lib/supabase'
 import { useProductDocuments } from '../lib/useProductDocuments'
-import type { DocumentType, ExtractedProductData, Product } from '../lib/types'
+import type { DocumentType, ExtractedProductData, Product, ProductStatus } from '../lib/types'
 
 const DOC_TYPES: DocumentType[] = [
   'formula_ingredient_list',
   'certificate_free_sale',
   'label_artwork',
 ]
-
-function ExtractionSummary({ data }: { data: ExtractedProductData }) {
-  return (
-    <div className="flex flex-col gap-4 rounded-lg border border-hairline bg-canvas-parchment p-6">
-      <p className="font-text text-[13px] font-semibold uppercase tracking-[0.231px] text-status-extracted">
-        AI-extracted draft — review before use
-      </p>
-      <dl className="flex flex-col gap-3">
-        {data.product_name && (
-          <div>
-            <dt className="font-text text-[12px] text-ink-muted-48">Product name</dt>
-            <dd className="font-text text-[15px] text-ink">{data.product_name}</dd>
-          </div>
-        )}
-        {data.product_type && (
-          <div>
-            <dt className="font-text text-[12px] text-ink-muted-48">Product type</dt>
-            <dd className="font-text text-[15px] text-ink">{data.product_type}</dd>
-          </div>
-        )}
-        {data.ingredients && data.ingredients.length > 0 && (
-          <div>
-            <dt className="font-text text-[12px] text-ink-muted-48">
-              Ingredients ({data.ingredients.length})
-            </dt>
-            <dd className="font-text text-[15px] text-ink">
-              {data.ingredients
-                .slice(0, 6)
-                .map((i) => i.inci_name)
-                .join(', ')}
-              {data.ingredients.length > 6 ? ', …' : ''}
-            </dd>
-          </div>
-        )}
-        {data.manufacturer_name && (
-          <div>
-            <dt className="font-text text-[12px] text-ink-muted-48">Manufacturer</dt>
-            <dd className="font-text text-[15px] text-ink">
-              {data.manufacturer_name}
-              {data.manufacturer_country ? `, ${data.manufacturer_country}` : ''}
-            </dd>
-          </div>
-        )}
-        {data.label_claims && data.label_claims.length > 0 && (
-          <div>
-            <dt className="font-text text-[12px] text-ink-muted-48">Label claims</dt>
-            <dd className="font-text text-[15px] text-ink">{data.label_claims.join(', ')}</dd>
-          </div>
-        )}
-        {data.notes && (
-          <div>
-            <dt className="font-text text-[12px] text-ink-muted-48">Notes for review</dt>
-            <dd className="font-text text-[15px] text-ink">{data.notes}</dd>
-          </div>
-        )}
-      </dl>
-      <p className="font-text text-[13px] text-ink-muted-48">
-        A full editable review screen is coming next — for now this is a read-only preview.
-      </p>
-    </div>
-  )
-}
 
 export default function ProductDetail() {
   const { id } = useParams<{ id: string }>()
@@ -82,6 +21,7 @@ export default function ProductDetail() {
   const [error, setError] = useState<string | null>(null)
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState<string | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
 
   const { documents, uploadDocument, deleteDocument } = useProductDocuments(
     product?.company_id ?? null,
@@ -107,6 +47,12 @@ export default function ProductDetail() {
 
   async function handleExtract() {
     if (!id) return
+    if (product && product.status !== 'draft') {
+      const proceed = window.confirm(
+        'This product already has extracted or edited data. Re-running extraction will overwrite it with a fresh AI read of the current documents. Continue?',
+      )
+      if (!proceed) return
+    }
     setExtracting(true)
     setExtractError(null)
     const { data: sessionData } = await supabase.auth.getSession()
@@ -134,6 +80,34 @@ export default function ProductDetail() {
     setExtracting(false)
   }
 
+  async function handleSaveReview(
+    data: ExtractedProductData,
+    options: { markReady: boolean },
+  ): Promise<{ error: string | null }> {
+    if (!id) return { error: 'Missing product id' }
+    const update: Partial<Product> & { updated_at: string } = {
+      extracted_data: data,
+      updated_at: new Date().toISOString(),
+    }
+    if (options.markReady) update.status = 'ready_to_fill'
+
+    const { error } = await supabase.from('products').update(update).eq('id', id)
+    if (error) return { error: error.message }
+    loadProduct()
+    return { error: null }
+  }
+
+  async function handleStatusChange(next: ProductStatus) {
+    if (!id) return
+    setStatusError(null)
+    const { error } = await supabase
+      .from('products')
+      .update({ status: next, updated_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) setStatusError(error.message)
+    else loadProduct()
+  }
+
   const extractedData = product?.extracted_data as ExtractedProductData | undefined
 
   return (
@@ -154,8 +128,11 @@ export default function ProductDetail() {
                 <h1 className="font-display text-[34px] font-semibold leading-[1.1] tracking-[-0.28px] text-ink">
                   {product.name}
                 </h1>
-                <StatusBadge status={product.status} />
+                <StatusSelect status={product.status} onChange={handleStatusChange} />
               </div>
+              {statusError && (
+                <p className="font-text text-[13px] text-status-rejected">{statusError}</p>
+              )}
 
               <div className="flex flex-col gap-4">
                 <h2 className="font-display text-[18px] font-semibold text-ink">Documents</h2>
@@ -193,8 +170,12 @@ export default function ProductDetail() {
                 </p>
               )}
 
-              {extractedData && Object.keys(extractedData).length > 0 && (
-                <ExtractionSummary data={extractedData} />
+              {product.status !== 'draft' && (
+                <ExtractionReviewForm
+                  key={product.updated_at}
+                  initialData={extractedData ?? {}}
+                  onSave={handleSaveReview}
+                />
               )}
             </>
           )}
