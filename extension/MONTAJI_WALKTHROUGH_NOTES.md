@@ -147,15 +147,16 @@ inspecting) — need real selectors next session.
 from the Attachments' "Ingredients Report" file upload:
 - Buttons: **New**, Edit, **Download Template**, **Import**, Delete.
 - Grid columns: Ingredient Name, Other, Weight, Percentage.
-- **"Download Template" + "Import" could be a much better fill strategy than
-  clicking through a row-add form per ingredient** — if Montaji accepts a filled
-  spreadsheet back, RegPilot could generate that file directly from the extracted
-  ingredient list instead of the extension doing repetitive UI automation. Worth
-  checking the template's exact file format (columns, sheet name) next session,
-  and whether Import can be triggered from a content script (file inputs usually
-  need a real user-initiated file picker, so this might still need the user to
-  pick a RegPilot-generated file — but still far more reliable than N rows of
-  autocomplete clicking).
+- **"Download Template" + "Import"** — potential future optimization over the
+  row-by-row modal. Confirmed the template is a real file: GET request to
+  `/file?guid=...&name=Ingredient_sample.xlsx&target=internal` (an .xlsx). The
+  actual download returned a 503 when tried (portal having another flaky moment —
+  the rest of the page kept working fine, so this looks like an isolated file-
+  serving hiccup, not a full outage). Didn't retry — **deprioritized**: the
+  row-by-row "New" modal below is now fully mapped AND tested working end-to-end,
+  which is enough for v1. Revisit Import only if the per-ingredient modal proves
+  too slow in practice; if so, next step would be downloading
+  `Ingredient_sample.xlsx` to see its exact columns.
 - **"New" row-add form — now fully mapped and tested end-to-end (one real row
   saved successfully: AQUA, 70%):** opens a "Product Ingredients" modal
   (`.modal-dialog.mx-window.mx-window-active`), with a note: "If you don't find the
