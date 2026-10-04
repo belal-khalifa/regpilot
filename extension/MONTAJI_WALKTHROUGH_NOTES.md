@@ -5,14 +5,13 @@ done with the user driving login and Belal filling placeholder data; Claude obse
 read-only via browser automation and never touched login or clicked final Submit.
 
 **Resume point:** draft request `CPRED-041026-373608` (Consumer Product Registration,
-company "BEAUTY TREND COSMETICS TRADING L.L.C"). Portal has gone down twice now
-during this walkthrough — both times the draft survived and we resumed from it, so
-this seems reliably safe. On the second outage we had: a variant already created
-under this draft (request number starting `CPRED-041026-373608-00...`, Variant Name
-"Testing Product 321345"), scrolled to its "Ingredients" grid, and had just clicked
-**"New"** to open the add-ingredient form when the portal dropped — that form's
-fields were never seen. **Resume exactly there**: reopen the draft, scroll to Step 4's
-Ingredients section, click New again.
+company "BEAUTY TREND COSMETICS TRADING L.L.C"), variant request number starting
+`CPRED-041026-373608-00...`, Variant Name "Testing Product 321345". Portal has gone
+down three times now during this walkthrough — every time the draft survived and we
+resumed from exactly where we left off, so this seems reliably safe. The Ingredients
+modal (see below) has been fully mapped and tested end-to-end (one row saved: AQUA /
+70%). **Next to do: Step 4's "Download Template" for Ingredients (check the file
+format), then Attachments uploads, then Step 5 (Acknowledgement).**
 To reopen: log back in, it should still be sitting as a draft — check "My Dashboard"
 or "Search Product" / request tracking ("click here" link on the form header) rather
 than starting over.
@@ -157,8 +156,32 @@ from the Attachments' "Ingredients Report" file upload:
   need a real user-initiated file picker, so this might still need the user to
   pick a RegPilot-generated file — but still far more reliable than N rows of
   autocomplete clicking).
-- The "New" button's row-add form itself was not seen — portal went down right
-  after clicking it. **First thing to check on resume.**
+- **"New" row-add form — now fully mapped and tested end-to-end (one real row
+  saved successfully: AQUA, 70%):** opens a "Product Ingredients" modal
+  (`.modal-dialog.mx-window.mx-window-active`), with a note: "If you don't find the
+  Ingredient, just select 'Other'."
+  - **Ingredients*** — autocomplete, wrapper `.mx-name-autoCompleteForMendix2`
+    *inside the modal* (same class name pattern reused per-modal-instance, not
+    globally unique — always scope this selector to the open modal, not the whole
+    document). Typing a name searches Montaji's own ingredient catalog; if it
+    matches a real entry (e.g. typing "Aqua" matched "AQUA"), that gets selected
+    directly — no extra field needed. If nothing matches, select the
+    **`***Other***`** option instead (it appears literally like that, asterisks
+    included, and oddly appears more than once in the list — any instance works).
+  - Selecting `***Other***` reveals an **"Ingredients other name"** text field,
+    `457.Services.CPRE_Ingredient.textBox1` — type the real ingredient name here.
+  - **Weight** — text input, `457.Services.CPRE_Ingredient.textBox2` (optional,
+    left blank in the test).
+  - **Percentage** — text input, `457.Services.CPRE_Ingredient.textBox3`.
+  - Save / Cancel buttons at the bottom.
+  - **Fill plan confirmed with Belal:** type the ingredient name into the
+    Ingredients search box either way — let Montaji auto-match to its catalog if
+    it finds one (fine, even better/more accurate), otherwise fall back to
+    clicking `***Other***` and filling "Ingredients other name". Don't force
+    `***Other***` unconditionally.
+  - After Save, the row appears correctly in the Ingredients grid (Ingredient
+    Name column showed "AQUA", Percentage "70") — confirms the whole add-ingredient
+    loop works and can be repeated (click New) once per ingredient.
 
 **"Attachments" section** (below Ingredients) — four upload slots, each with
 Upload/View/Delete and a Name/Time Stamp grid:
