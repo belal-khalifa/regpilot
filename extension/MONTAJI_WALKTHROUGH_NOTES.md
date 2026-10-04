@@ -204,7 +204,21 @@ Upload/View/Delete and a Name/Time Stamp grid:
   add it as an upload category later. Not needed for v1.
 - **Laboratory Test Report** — **ignore per Belal**, not in scope.
 
-Did not reach the bottom of Step 4 (Next/Back buttons) before the second outage.
+**Upload mechanism** (checked on Artwork, same pattern expected for the others):
+clicking Upload opens an in-page "Add Document" modal (bare input + "Browse..." +
+Upload/Cancel, inside the usual `.mx-window.mx-window-active`) rather than
+immediately throwing a native file picker. The underlying element is a plain
+`<input type="file">` with no id/class — find it scoped to the open modal. Belal
+confirmed we don't need to actually complete an upload to keep exploring, so this
+wasn't finished, but one useful finding: **because it's a real file input (not some
+custom non-standard widget), the extension could in principle attach a file
+programmatically via the DataTransfer API** (`new DataTransfer(); dt.items.add(new
+File(...)); input.files = dt.files; dispatch 'change'`) — no OS picker needed. That
+would let the extension auto-attach the same document bytes the user already
+uploaded to RegPilot, for Artwork/Ingredients Report/Free Sale/GMP cert. **Not v1
+scope** (v1 is text-field filling only; this needs the fill payload to carry actual
+file bytes, not just extracted text) but a real, concrete v2 capability worth
+remembering — it's not blocked by anything we've seen.
 
 ## Step 5 — Acknowledgement
 **Not yet seen.** Presumably final review + consent + the real Submit button, which
