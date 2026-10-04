@@ -27,7 +27,7 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://REPLACE-WITH-REAL-MONTAJI-DOMAIN.gov.ae/*"],
+      "matches": ["https://montajiprd.dm.gov.ae/*"],
       "js": [
         "config/field-map.js",
         "config/fill-engine.js",

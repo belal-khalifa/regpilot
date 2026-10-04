@@ -1,15 +1,16 @@
 // ⚠️ PLACEHOLDER — this file does not work yet.
 //
-// These CSS selectors are stand-ins. We don't yet have access to Dubai
-// Municipality's real Montaji registration form, so these need to be
-// replaced with the actual field selectors once someone can either:
-//   (a) share screenshots / saved HTML of the registration form, or
-//   (b) walk through it live so the real field names/ids can be read off
-//       the page (e.g. via the browser's "Inspect Element").
+// A live walkthrough of the real Montaji production portal is in progress —
+// see ../MONTAJI_WALKTHROUGH_NOTES.md for everything learned so far (resume
+// point, real selector patterns, Mendix-specific gotchas) before continuing
+// this file. Selectors below are still stand-ins pending Step 4/5 of the
+// wizard (ingredients, label artwork, acknowledgement) and a decision on the
+// Category/Sub-Category taxonomy question documented there.
 //
-// How to find a real selector: right-click the form field on Montaji →
-// Inspect → note its "id" (preferred, e.g. "#productName") or "name"
-// attribute (e.g. '[name="productName"]'). Put that string below.
+// Mendix quirk (see notes doc for detail): plain input ids have an UNSTABLE
+// runtime suffix — use `[id^="stable.prefix"]` starts-with selectors, never
+// an exact id. Some widgets instead carry a stable `mx-name-<name>` class on
+// their wrapper, which is preferable when present.
 //
 // This is a plain script (not an ES module) so it can load as a classic
 // content script alongside fill-engine.js and montaji-filler.js, sharing
