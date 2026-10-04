@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "RegPilot for Montaji",
+  "version": "0.1.0",
+  "description": "Fills your reviewed RegPilot product data into the Montaji cosmetics registration form. You stay logged into Montaji yourself and click Submit — RegPilot never sees your Montaji password.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://regpilot-app.netlify.app/*", "http://localhost:5173/*"],
+      "js": ["content-scripts/regpilot-bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://REPLACE-WITH-REAL-MONTAJI-DOMAIN.gov.ae/*"],
+      "js": [
+        "config/field-map.js",
+        "config/fill-engine.js",
+        "content-scripts/montaji-filler.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

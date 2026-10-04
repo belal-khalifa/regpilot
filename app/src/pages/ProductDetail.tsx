@@ -4,6 +4,7 @@ import GlobalNav from '../components/GlobalNav'
 import StatusSelect from '../components/StatusSelect'
 import DocumentUploadSection from '../components/DocumentUploadSection'
 import ExtractionReviewForm from '../components/ExtractionReviewForm'
+import MontajiFillPanel from '../components/MontajiFillPanel'
 import { supabase } from '../lib/supabase'
 import { useProductDocuments } from '../lib/useProductDocuments'
 import type { DocumentType, ExtractedProductData, Product, ProductStatus } from '../lib/types'
@@ -13,6 +14,8 @@ const DOC_TYPES: DocumentType[] = [
   'certificate_free_sale',
   'label_artwork',
 ]
+
+const FILLABLE_STATUSES: ProductStatus[] = ['ready_to_fill', 'submitted', 'approved', 'rejected']
 
 export default function ProductDetail() {
   const { id } = useParams<{ id: string }>()
@@ -176,6 +179,10 @@ export default function ProductDetail() {
                   initialData={extractedData ?? {}}
                   onSave={handleSaveReview}
                 />
+              )}
+
+              {FILLABLE_STATUSES.includes(product.status) && (
+                <MontajiFillPanel productName={product.name} data={extractedData ?? {}} />
               )}
             </>
           )}
