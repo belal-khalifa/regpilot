@@ -10,9 +10,24 @@ see Step 5).
 throughout: request `CPRED-041026-373608` (Consumer Product Registration, company
 "BEAUTY TREND COSMETICS TRADING L.L.C"), variant `CPRED-041026-373608-00...`
 ("Testing Product 321345"), one ingredient saved (AQUA, 70%). The portal went down
-three separate times during this session — every time the draft survived and we
+four separate times during this session — every time the draft survived and we
 resumed exactly where we left off, so that pattern seems reliably safe for future
 sessions too.
+
+**Active task (new, started after the walkthrough above): crawling Montaji's full
+Group → Category → Sub-Category taxonomy** as static reference data, so AI
+classification can be constrained to real values instead of free text (per Belal's
+direction — automate taxonomy matching too, with a confidence gate deciding
+auto-fill vs. flag-for-review, working toward eventually trusting full automation
+once confidence is proven). Plan: since Country of Origin's ~243 options loaded
+into the DOM on open with no typing needed (same pattern as the Ingredients
+catalog), Group/Category/Sub-Category almost certainly work the same way —
+read the option lists directly via JS rather than clicking through the UI.
+Category depends on Group and Sub-Category depends on Category, so this needs
+one pass per Group to capture its valid Categories, then per Category for
+Sub-Categories. **Not started yet — portal went down (4th time) right as we
+navigated back to Step 2 to begin this.** Resume: get back to the "New Product
+Base Information" form (Step 2) on the existing draft, open each dropdown.
 
 **What's left is not more exploration, it's turning this into working code** — see
 "Still to do" at the bottom for the concrete remaining list (mainly: a focused pass
