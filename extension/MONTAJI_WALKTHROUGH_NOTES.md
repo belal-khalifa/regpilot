@@ -1,20 +1,24 @@
-# Montaji CPRE walkthrough notes (in progress)
+# Montaji CPRE walkthrough notes
 
 Live walkthrough of the real Montaji production portal (`https://montajiprd.dm.gov.ae`),
 done with the user driving login and Belal filling placeholder data; Claude observed
-read-only via browser automation and never touched login or clicked final Submit.
+read-only via browser automation, never touched login, and never clicked the real
+Submit (confirmed Montaji disables it until a human checks a declaration toggle —
+see Step 5).
 
-**Resume point:** draft request `CPRED-041026-373608` (Consumer Product Registration,
-company "BEAUTY TREND COSMETICS TRADING L.L.C"), variant request number starting
-`CPRED-041026-373608-00...`, Variant Name "Testing Product 321345". Portal has gone
-down three times now during this walkthrough — every time the draft survived and we
-resumed from exactly where we left off, so this seems reliably safe. The Ingredients
-modal (see below) has been fully mapped and tested end-to-end (one row saved: AQUA /
-70%). **Next to do: Step 4's "Download Template" for Ingredients (check the file
-format), then Attachments uploads, then Step 5 (Acknowledgement).**
-To reopen: log back in, it should still be sitting as a draft — check "My Dashboard"
-or "Search Product" / request tracking ("click here" link on the form header) rather
-than starting over.
+**Status: structural walkthrough of all 5 wizard steps is complete.** Draft used
+throughout: request `CPRED-041026-373608` (Consumer Product Registration, company
+"BEAUTY TREND COSMETICS TRADING L.L.C"), variant `CPRED-041026-373608-00...`
+("Testing Product 321345"), one ingredient saved (AQUA, 70%). The portal went down
+three separate times during this session — every time the draft survived and we
+resumed exactly where we left off, so that pattern seems reliably safe for future
+sessions too.
+
+**What's left is not more exploration, it's turning this into working code** — see
+"Still to do" at the bottom for the concrete remaining list (mainly: a focused pass
+to confidently label a handful of Sub Variant Information selectors, settle the
+Category/Sub-Category taxonomy question, then write it all into `field-map.js` and
+`montaji-filler.js`).
 
 ## How to reach the form
 Login → left sidebar **Services** → **Consumer Product Registration (CPRE)** card
@@ -221,27 +225,48 @@ file bytes, not just extracted text) but a real, concrete v2 capability worth
 remembering — it's not blocked by anything we've seen.
 
 ## Step 5 — Acknowledgement
-**Not yet seen.** Presumably final review + consent + the real Submit button, which
-we will not click during exploration.
+**Seen and mapped.** Top of the page is a full read-only recap of everything
+entered in Steps 1-4 (Sub Variant Information, Attachments, etc.) — no new editable
+fields there. At the bottom:
+- A toggle switch + declaration text: *"We hereby acknowledge that all the
+  information which is submitted to Dubai Municipality is correct, and declare
+  full legal liability if the mentioned information is proved to be incorrect"*,
+  with a **"Terms and Condition\*"** link.
+- **The real Submit button is disabled until that toggle is switched on.** This
+  independently confirms Montaji itself enforces a human consent step before
+  anything can be submitted — lines up exactly with RegPilot's own design (the
+  extension fills fields but a person must review and act to actually submit).
+  We did not toggle it or click Submit.
+
+**The full 5-step wizard has now been walked end-to-end once, live, in production**,
+with one real variant and one real ingredient saved successfully (never submitted).
 
 ## Still to do
-1. Resume from draft `CPRED-041026-373608` → Step 4 → the existing variant's
-   Ingredients section → click **New** and capture that form's fields/selectors.
-2. Capture real selectors for all "Sub Variant Information" fields listed above.
-3. Check "Download Template" for Ingredients — exact file format — and evaluate
-   the file-import approach vs. per-row UI automation.
-4. Reach and map Step 5 (Acknowledgement).
-5. Confirm the Country of Origin → Free Sale/GMP conditional behavior on Step 3.
-6. Figure out the unlabeled toggle on Step 2 if it turns out to matter.
-7. Once everything is mapped, decide the Category/Sub-Category taxonomy question
-   (manual selection vs. some mapping table) and update `field-map.js` with real
-   selectors (replacing the `TODO_SELECTOR_*` placeholders), set `MONTAJI_READY =
-   true`. (Manifest domain is already fixed — `montajiprd.dm.gov.ae`.)
-8. Update `montaji-filler.js` to watch for step changes (MutationObserver) since
-   this is an SPA wizard.
-9. Build the "searchable autocomplete" filler (click → type → click result) in
-   `fill-engine.js` as a distinct helper from the current plain `fillField`, since
-   Category/Group/Sub-Category/Country of Origin/Weight-Volume Unit/Package Type
-   all need it.
-10. Decide whether Product Image becomes a 4th RegPilot upload category (later,
-    not v1).
+1. Get clean, confidently-labeled real selectors for the "Sub Variant Information"
+   fields (International Barcode, Product Color/Shade, Size/Weight/Volume, Weight/
+   Volume Unit, Scent/Flavor, the three Yes/No radios, Shelf Life, Shelf Life
+   Period Type, Package Type). A broad selector dump was captured mid-session
+   (`mx-name-referenceSelector13-16`, `mx-name-dropDown7`/`dropDown8`, plus one
+   unlabeled select) but wasn't confidently matched back to field labels one-by-one
+   — redo this as a focused pass, screenshotting the fields in order right before
+   querying, rather than trusting a bulk unscoped query.
+2. Confirm the Country of Origin → Free Sale/GMP conditional behavior on Step 3
+   (still unverified live — only have Belal's description of the rule).
+3. Figure out the unlabeled toggle on Step 2 if it turns out to matter.
+4. Decide the Category/Sub-Category taxonomy question (manual selection vs. a
+   mapping table from RegPilot's free-text `product_type`).
+5. With the above settled, write the real selectors into `field-map.js` (replacing
+   `TODO_SELECTOR_*`) and set `MONTAJI_READY = true`. (Manifest domain is already
+   fixed — `montajiprd.dm.gov.ae`.)
+6. Update `montaji-filler.js` to watch for step changes (MutationObserver) since
+   this is an SPA wizard — confirmed across all 5 steps, no full page reloads.
+7. Build the "searchable autocomplete" filler (click → type → click matching
+   result, scoped to whatever modal/section is open) in `fill-engine.js` as a
+   distinct helper from the current plain `fillField` — needed for Category/Group/
+   Sub-Category/Country of Origin/Weight-Volume Unit/Package Type/Ingredients.
+8. Decide whether Product Image becomes a 4th RegPilot upload category (later,
+   not v1).
+9. (v2, not blocking) Consider the Ingredients Download-Template/Import bulk path,
+   and/or programmatic file-attach via DataTransfer for the Attachments uploads —
+   both are confirmed technically viable, just extra scope beyond v1 text-field
+   filling.
