@@ -147,16 +147,27 @@ inspecting) — need real selectors next session.
 from the Attachments' "Ingredients Report" file upload:
 - Buttons: **New**, Edit, **Download Template**, **Import**, Delete.
 - Grid columns: Ingredient Name, Other, Weight, Percentage.
-- **"Download Template" + "Import"** — potential future optimization over the
-  row-by-row modal. Confirmed the template is a real file: GET request to
-  `/file?guid=...&name=Ingredient_sample.xlsx&target=internal` (an .xlsx). The
-  actual download returned a 503 when tried (portal having another flaky moment —
-  the rest of the page kept working fine, so this looks like an isolated file-
-  serving hiccup, not a full outage). Didn't retry — **deprioritized**: the
-  row-by-row "New" modal below is now fully mapped AND tested working end-to-end,
-  which is enough for v1. Revisit Import only if the per-ingredient modal proves
-  too slow in practice; if so, next step would be downloading
-  `Ingredient_sample.xlsx` to see its exact columns.
+- **"Download Template" + "Import" — got the actual file, real finding below.**
+  Belal downloaded it despite the 503 I saw server-side; saved at
+  `attachments/Ingredient_sample.xlsx` in this repo.
+  - **Sheet "Ingredient Details"**: row 1 is the same "select Other and fill Other
+    column" note as the live modal; row 2 is headers **Ingredient | Other |
+    Percentage | Weight**; data starts row 3 (blank in the template). Column A
+    ("Ingredient") has an Excel data-validation dropdown tied to a named list.
+  - **Sheet "DataSource"**: 847 rows of `(id, ingredient name)` pairs — this is
+    **Montaji's entire official ingredient catalog**, the exact same list the live
+    Select2 widget searches. We now have it as a static reference file.
+  - **This meaningfully upgrades the Import path from "maybe" to a real option**:
+    RegPilot could match each AI-extracted ingredient against this known catalog
+    *before* ever touching the browser (exact or fuzzy match → real name; no match
+    → "Other" + free text in the Other column), generate a filled .xlsx in this
+    exact shape, and have the user import it in one action instead of one modal
+    per ingredient.
+  - **Still deprioritized for v1** — the row-by-row "New" modal (below) is already
+    fully mapped and tested working end-to-end, which is enough to ship. Revisit
+    this once ingredient-heavy products make the per-row modal feel slow. Note:
+    generating a real .xlsx (not just CSV) needs a spreadsheet-writing library in
+    the Netlify function — doable, just extra scope.
 - **"New" row-add form — now fully mapped and tested end-to-end (one real row
   saved successfully: AQUA, 70%):** opens a "Product Ingredients" modal
   (`.modal-dialog.mx-window.mx-window-active`), with a note: "If you don't find the
