@@ -5,10 +5,17 @@ done with the user driving login and Belal filling placeholder data; Claude obse
 read-only via browser automation and never touched login or clicked final Submit.
 
 **Resume point:** draft request `CPRED-041026-373608` (Consumer Product Registration,
-company "BEAUTY TREND COSMETICS TRADING L.L.C"). Portal went down mid-walkthrough,
-partway through Step 4. Log back in, it should still be sitting as a draft — check
-"My Dashboard" or "Search Product" / request tracking ("click here" link on the form
-header) to reopen it rather than starting over.
+company "BEAUTY TREND COSMETICS TRADING L.L.C"). Portal has gone down twice now
+during this walkthrough — both times the draft survived and we resumed from it, so
+this seems reliably safe. On the second outage we had: a variant already created
+under this draft (request number starting `CPRED-041026-373608-00...`, Variant Name
+"Testing Product 321345"), scrolled to its "Ingredients" grid, and had just clicked
+**"New"** to open the add-ingredient form when the portal dropped — that form's
+fields were never seen. **Resume exactly there**: reopen the draft, scroll to Step 4's
+Ingredients section, click New again.
+To reopen: log back in, it should still be sitting as a draft — check "My Dashboard"
+or "Search Product" / request tracking ("click here" link on the form header) rather
+than starting over.
 
 ## How to reach the form
 Login → left sidebar **Services** → **Consumer Product Registration (CPRE)** card
@@ -109,26 +116,83 @@ since a "variant" is the actual sellable SKU and would carry its own label/
 ingredients/packaging data.
 
 ## Step 4 — Products Variants
-**Not yet seen** — portal went down right after clicking Next from Step 3. This is
-the step most likely to contain ingredients and label artwork fields. Resume here
-first.
+Top shows a read-only recap of "Product Base Information" (what was entered in
+Step 2), then:
+
+**"Products Information" grid** — list of variants under this product base.
+Buttons: **Add New Variant**, **Add Variant with copy Details**, Delete. Clicking
+"Add New Variant" adds a row to the grid *and* reveals a "Sub Variant Information"
+edit form further down the page (not a modal, not a row-click-to-expand — just
+appears below once added). Grid columns: Product Request Number, Barcode, Product
+Name, Color, Size/weight.
+
+**"Sub Variant Information" fields** (the actual per-variant data entry):
+- **International Barcode*** — text input
+- **Variant Name*** — text input, pre-filled from the Product Base's Name
+- **Product Color / Shade*** — text input
+- **Size / Weight / Volume*** — numeric input (defaults to 0.00)
+- **Weight / Volume Unit*** — dropdown
+- **Scent / Flavor*** — text input
+- **Has Production Date?** — Yes/No radio
+- **Has Expiry Date?** — Yes/No radio
+- **Has Batch Number?** — Yes/No radio
+- **Shelf Life** — numeric input
+- **Shelf Life Period Type** — dropdown
+- **Has period after opening?** — Yes/No radio
+- **Package Type** — dropdown ("Select an item from the dropdown...")
+
+None of these widgets' ids/classes were captured yet (portal went down before
+inspecting) — need real selectors next session.
+
+**"Ingredients" section** (below Sub Variant Information) — its own grid, separate
+from the Attachments' "Ingredients Report" file upload:
+- Buttons: **New**, Edit, **Download Template**, **Import**, Delete.
+- Grid columns: Ingredient Name, Other, Weight, Percentage.
+- **"Download Template" + "Import" could be a much better fill strategy than
+  clicking through a row-add form per ingredient** — if Montaji accepts a filled
+  spreadsheet back, RegPilot could generate that file directly from the extracted
+  ingredient list instead of the extension doing repetitive UI automation. Worth
+  checking the template's exact file format (columns, sheet name) next session,
+  and whether Import can be triggered from a content script (file inputs usually
+  need a real user-initiated file picker, so this might still need the user to
+  pick a RegPilot-generated file — but still far more reliable than N rows of
+  autocomplete clicking).
+- The "New" button's row-add form itself was not seen — portal went down right
+  after clicking it. **First thing to check on resume.**
+
+**"Attachments" section** (below Ingredients) — four upload slots, each with
+Upload/View/Delete and a Name/Time Stamp grid:
+- **Artwork** — maps to RegPilot's `label_artwork` document type.
+- **Ingredients Report** — maps to RegPilot's `formula_ingredient_list` document
+  type (the source document, distinct from the structured Ingredients grid above).
+- **Product Image** — optional. Not collected by RegPilot today; Belal says we can
+  add it as an upload category later. Not needed for v1.
+- **Laboratory Test Report** — **ignore per Belal**, not in scope.
+
+Did not reach the bottom of Step 4 (Next/Back buttons) before the second outage.
 
 ## Step 5 — Acknowledgement
 **Not yet seen.** Presumably final review + consent + the real Submit button, which
 we will not click during exploration.
 
 ## Still to do
-1. Resume walkthrough from draft `CPRED-041026-373608`, continue into Step 4
-   (Products Variants) and Step 5 (Acknowledgement).
-2. Confirm the Country of Origin → Free Sale/GMP conditional behavior on Step 3.
-3. Figure out the unlabeled toggle on Step 2 if it turns out to matter.
-4. Once Steps 4-5 are mapped, decide the Category/Sub-Category taxonomy question
+1. Resume from draft `CPRED-041026-373608` → Step 4 → the existing variant's
+   Ingredients section → click **New** and capture that form's fields/selectors.
+2. Capture real selectors for all "Sub Variant Information" fields listed above.
+3. Check "Download Template" for Ingredients — exact file format — and evaluate
+   the file-import approach vs. per-row UI automation.
+4. Reach and map Step 5 (Acknowledgement).
+5. Confirm the Country of Origin → Free Sale/GMP conditional behavior on Step 3.
+6. Figure out the unlabeled toggle on Step 2 if it turns out to matter.
+7. Once everything is mapped, decide the Category/Sub-Category taxonomy question
    (manual selection vs. some mapping table) and update `field-map.js` with real
    selectors (replacing the `TODO_SELECTOR_*` placeholders), set `MONTAJI_READY =
-   true`, and fix the manifest's placeholder Montaji domain
-   (`REPLACE-WITH-REAL-MONTAJI-DOMAIN.gov.ae` → `montajiprd.dm.gov.ae`).
-5. Update `montaji-filler.js` to watch for step changes (MutationObserver) since
+   true`. (Manifest domain is already fixed — `montajiprd.dm.gov.ae`.)
+8. Update `montaji-filler.js` to watch for step changes (MutationObserver) since
    this is an SPA wizard.
-6. Build the "searchable autocomplete" filler (click → type → click result) in
+9. Build the "searchable autocomplete" filler (click → type → click result) in
    `fill-engine.js` as a distinct helper from the current plain `fillField`, since
-   Category/Group/Sub-Category/Country of Origin all need it.
+   Category/Group/Sub-Category/Country of Origin/Weight-Volume Unit/Package Type
+   all need it.
+10. Decide whether Product Image becomes a 4th RegPilot upload category (later,
+    not v1).
