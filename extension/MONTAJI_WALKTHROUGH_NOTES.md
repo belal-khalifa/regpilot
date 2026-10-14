@@ -15,7 +15,7 @@ resumed exactly where we left off, so that pattern seems reliably safe for futur
 sessions too.
 
 **Taxonomy crawl (Group → Category → Sub-Category) — done for the two groups that
-matter, saved to `extension/reference/montaji-taxonomy.json`.** Goal (per Belal):
+matter, saved as `app/src/lib/montajiTaxonomy.ts` (the single source of truth; the Netlify extraction function and the review form both import it).** Goal (per Belal):
 constrain AI classification to real Montaji values instead of free text, with a
 confidence gate deciding auto-fill vs. flag-for-review, working toward trusting
 full automation once confidence is proven.
