@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "RegPilot for Montaji",
-  "version": "0.2.0",
-  "description": "Fills your reviewed RegPilot product data into the Montaji cosmetics registration form. You stay logged into Montaji yourself and click Submit — RegPilot never sees your Montaji password.",
+  "version": "0.3.0",
+  "description": "Fills your reviewed RegPilot product data into the Montaji cosmetics registration form. You stay logged into Montaji yourself and click Submit \u2014 RegPilot never sees your Montaji password.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -19,21 +19,42 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage"],
+  "permissions": [
+    "storage"
+  ],
   "content_scripts": [
     {
-      "matches": ["https://regpilot-app.netlify.app/*", "http://localhost:5173/*"],
-      "js": ["content-scripts/regpilot-bridge.js"],
+      "matches": [
+        "https://regpilot-app.netlify.app/*",
+        "http://localhost:5173/*"
+      ],
+      "js": [
+        "content-scripts/regpilot-bridge.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://montajiprd.dm.gov.ae/*"],
+      "matches": [
+        "https://montajiprd.dm.gov.ae/*"
+      ],
       "js": [
+        "vendor/jszip.min.js",
         "config/field-map.js",
         "config/fill-engine.js",
+        "config/ingredient-import.js",
         "content-scripts/montaji-filler.js"
       ],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/Ingredient_sample.xlsx"
+      ],
+      "matches": [
+        "https://montajiprd.dm.gov.ae/*"
+      ]
     }
   ]
 }

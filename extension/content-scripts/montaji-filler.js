@@ -126,32 +126,23 @@
       return false
     }
 
-    const wanted = E.normalize(ingredient.inci_name)
-    const pick = await E.select2Pick(I.autocomplete, ingredient.inci_name, {
+    // Always "Other" with the real name typed in: Montaji swaps in its own master-list entry when
+    // the name already exists there, and this avoids the slow per-ingredient list lookup.
+    const other = await E.select2Pick(I.autocomplete, I.otherOption, {
       root: popup,
-      searchTerm: ingredient.inci_name,
-      match: (text) => (E.normalize(text) === wanted ? 100 : 0),
+      searchTerm: 'Other',
+      match: (text) => (E.normalize(text) === E.normalize(I.otherOption) ? 100 : 0),
     })
-
-    let usedOther = false
-    if (!pick.ok) {
-      const other = await E.select2Pick(I.autocomplete, I.otherOption, {
-        root: popup,
-        searchTerm: 'Other',
-        match: (text) => (E.normalize(text) === E.normalize(I.otherOption) ? 100 : 0),
-      })
-      if (!other.ok) {
-        E.clickButton('Cancel', popup)
-        report.push({ label, status: 'manual', detail: 'could not choose it or "Other" in the list' })
-        return false
-      }
-      const typed = await E.fillText(I.page, I.otherName, ingredient.inci_name, { root: popup })
-      if (!typed.ok) {
-        E.clickButton('Cancel', popup)
-        report.push({ label, status: 'manual', detail: 'could not type the name under "Other"' })
-        return false
-      }
-      usedOther = true
+    if (!other.ok) {
+      E.clickButton('Cancel', popup)
+      report.push({ label, status: 'manual', detail: 'could not choose "Other" in the list' })
+      return false
+    }
+    const typed = await E.fillText(I.page, I.otherName, ingredient.inci_name, { root: popup })
+    if (!typed.ok) {
+      E.clickButton('Cancel', popup)
+      report.push({ label, status: 'manual', detail: 'could not type the name under "Other"' })
+      return false
     }
 
     const pct = String(ingredient.percentage ?? '').match(/\d+(\.\d+)?/)
@@ -162,9 +153,155 @@
     report.push({
       label,
       status: closed ? 'filled' : 'manual',
-      detail: closed ? (usedOther ? 'added as "Other"' : 'matched Montaji\'s list') : 'popup did not close - check it',
+      detail: closed ? 'added' : 'popup did not close - check it',
     })
     return Boolean(closed)
+  }
+
+  // --- ingredients by Excel import (fast path) ----------------------------------------------
+
+  const findImportPopup = () =>
+    Array.from(document.querySelectorAll('.mx-window-active, .modal-dialog, .mx-window')).find(
+      (el) => E.isVisible(el) && /Import From Excel/i.test(el.textContent),
+    )
+
+  // The ingredient grid is paged (5 rows), so only its "of N" total says how many are really saved.
+  function ingredientTotal() {
+    const button = E.findButton('Download Template')
+    const grid = button && button.closest('.mx-grid')
+    const match = grid && grid.textContent.match(/of\s+(\d+)/)
+    return match ? Number(match[1]) : null
+  }
+
+  async function loadTemplateBytes() {
+    const url = chrome.runtime.getURL('assets/Ingredient_sample.xlsx')
+    const response = await fetch(url)
+    if (!response.ok) throw new Error('could not read the bundled ingredient template')
+    return response.arrayBuffer()
+  }
+
+  // Returns { ok, added, reason }. Never leaves the import popup open.
+  async function importIngredientsFile(ingredients) {
+    const built = await RP.ingredientImport.buildWorkbook(ingredients, await loadTemplateBytes())
+    const before = ingredientTotal()
+
+    if (!E.clickButton('Import')) return { ok: false, reason: 'no Import button' }
+    const popup = await E.waitFor(findImportPopup, { timeout: 8000 })
+    if (!popup) return { ok: false, reason: 'the import popup did not open' }
+    const closePopup = () => {
+      const cancel = Array.from(popup.querySelectorAll('button')).find((b) => E.normalize(b.textContent) === 'cancel')
+      if (cancel) cancel.click()
+    }
+
+    const input = popup.querySelector('input[type="file"]')
+    if (!input) {
+      closePopup()
+      return { ok: false, reason: 'no file box in the import popup' }
+    }
+    const transfer = new DataTransfer()
+    transfer.items.add(
+      new File([built.bytes], 'Ingredients.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
+    )
+    input.files = transfer.files
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+
+    // Montaji echoes the chosen file's name into its own text box once it has registered the file.
+    const registered = await E.waitFor(
+      () => Array.from(popup.querySelectorAll('input[type="text"]')).some((i) => i.value.includes('Ingredients.xlsx')),
+      { timeout: 4000 },
+    )
+    if (!registered) {
+      closePopup()
+      return { ok: false, reason: 'Montaji did not register the file' }
+    }
+
+    const importButton = Array.from(popup.querySelectorAll('button')).find((b) => E.normalize(b.textContent) === 'import')
+    if (!importButton) {
+      closePopup()
+      return { ok: false, reason: 'no Import button in the popup' }
+    }
+    importButton.click()
+
+    const closed = await E.waitFor(() => !findImportPopup(), { timeout: 25000 })
+    if (!closed) {
+      const message = (popup.textContent.match(/Please[^.]*\./) || [''])[0].trim()
+      closePopup()
+      return { ok: false, reason: message || 'Montaji kept the import popup open' }
+    }
+
+    await E.sleep(1500)
+    const after = ingredientTotal()
+    const added = before !== null && after !== null ? after - before : null
+    if (added !== null && added < built.count) {
+      return { ok: false, partial: true, added, reason: `Montaji took ${added} of ${built.count} rows` }
+    }
+    return { ok: true, added: added === null ? built.count : added, built }
+  }
+
+  async function addIngredients(ingredients, report, prefix) {
+    const named = ingredients.filter((i) => i && i.inci_name)
+    if (!named.length) return
+
+    // Montaji rejects any row without a percentage, so those are left for a person.
+    const hasPercentage = (i) => /\d/.test(String(i.percentage ?? ''))
+    const ready = named.filter(hasPercentage)
+    const missing = named.filter((i) => !hasPercentage(i))
+    if (missing.length) {
+      report.push({
+        label: `${prefix}Ingredients without a percentage`,
+        status: 'manual',
+        detail: `Montaji requires one, so add these yourself: ${missing.map((i) => i.inci_name).join(', ')}`,
+      })
+    }
+    if (!ready.length) return
+
+    ui.setStatus(`${prefix}importing ${ready.length} ingredients...`)
+    let outcome
+    try {
+      outcome = await importIngredientsFile(ready)
+    } catch (err) {
+      outcome = { ok: false, reason: String(err && err.message ? err.message : err) }
+    }
+
+    if (outcome.ok) {
+      report.push({ label: `${prefix}Ingredients`, status: 'filled', detail: `${outcome.added} imported from Excel` })
+      if (outcome.built && outcome.built.approximated.length) {
+        report.push({
+          label: `${prefix}Approximate percentages`,
+          status: 'manual',
+          detail: `Written as the first number given - check: ${outcome.built.approximated.join(', ')}`,
+        })
+      }
+      if (outcome.built && outcome.built.skipped.length) {
+        report.push({
+          label: `${prefix}Ingredients over the file limit`,
+          status: 'manual',
+          detail: `Add these yourself: ${outcome.built.skipped.join(', ')}`,
+        })
+      }
+      return
+    }
+
+    // Slow path: one popup per ingredient. Only reached when the import itself was refused.
+    report.push({
+      label: `${prefix}Excel import`,
+      status: 'info',
+      detail: `Did not work (${outcome.reason}); adding ingredients one by one instead.`,
+    })
+    if (outcome.partial) {
+      report.push({
+        label: `${prefix}Check ingredients`,
+        status: 'manual',
+        detail: 'Some rows may already have been imported - check the list for duplicates.',
+      })
+    }
+    for (let i = 0; i < ready.length; i++) {
+      ui.setStatus(`${prefix}ingredient ${i + 1} of ${ready.length}...`)
+      await addIngredient(ready[i], report)
+    }
   }
 
   async function fillOneVariant(variant, data, index, total, report) {
@@ -195,11 +332,7 @@
       r('Shelf life period', await E.fillNativeSelect(V.page, V.shelfLifePeriod, data.shelf_life_period_type))
     }
 
-    const ingredients = (data.ingredients || []).filter((i) => i && i.inci_name)
-    for (let i = 0; i < ingredients.length; i++) {
-      ui.setStatus(`${prefix}ingredient ${i + 1} of ${ingredients.length}...`)
-      await addIngredient(ingredients[i], report)
-    }
+    await addIngredients(data.ingredients || [], report, prefix)
 
     // Montaji's own per-variant check. It only validates and saves; it does not submit anything.
     ui.setStatus(`${prefix}saving and validating...`)

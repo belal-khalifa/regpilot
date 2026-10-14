@@ -340,6 +340,35 @@ extension's storage) and run against a throwaway draft under the DM STACEY ACCOU
 - **Not yet tested:** the real packaged extension (isolated content-script world, real
   `chrome.runtime` storage, data arriving from the RegPilot site) and the Step 1/3/5 messages.
 
+## Ingredients by Excel import - live results (2026-10-14)
+
+Replaced the one-popup-per-ingredient loop with Montaji's own "Import" button; the popup loop is
+kept only as an automatic fallback.
+
+- **How it works:** "Import" opens an "Import From Excel" popup (`<input type="file">`, Browse...,
+  Cancel, Import). The extension fills Montaji's own template (`assets/Ingredient_sample.xlsx`)
+  with the ingredients, assigns it to the file input through `DataTransfer` (Montaji's widget
+  reacts as if a person had chosen it and echoes the file name), and presses the popup's Import.
+  A 11-ingredient file was imported in about 4 seconds; a whole variant (fields + ingredients +
+  Save and Validate) took 11 seconds, versus roughly 15-20 seconds *per ingredient* by popup.
+- **Strings must be shared strings.** The same rows written as inline strings were rejected with
+  "Please make sure that all the information for the imported ingredient are valid and not
+  empty" and nothing was added; as shared strings (what Excel itself writes) they import.
+- **Percentage is required on every row.** A row with no percentage is refused and the popup stays
+  open with that message. Weight is *not* required. RegPilot therefore imports only rows that have
+  a percentage and lists the rest for the person; INCI lists on labels often have no percentages,
+  so they have to come from the formula document.
+- **Everything is written as `***Other***` + the real name** (per Belal). **Montaji did NOT swap in
+  its master-list entry in the grid** - not after import and not after "Save and Validate": rows
+  stayed `***Other*** | Aqua | 70`. Whether it normalises later (e.g. on submission/review) is
+  unverified.
+- **The ingredient grid shows only 5 rows per page.** Count with the pager's "of N" total, never
+  the visible rows - this caused a wrong conclusion during testing.
+- Test harness gotcha: Montaji's page has an AMD loader that swallows JSZip's global; it does not
+  affect the extension (isolated world).
+- Template limit: 113 data rows (the template's table is A2:D115). Percentages like "<1%" are
+  written as the first number and reported for review.
+
 ## Still to do
 1. ~~Sub Variant Information selectors~~ — **done**, see the table in Step 4.
 2. Confirm the Country of Origin → Free Sale/GMP conditional behavior on Step 3
