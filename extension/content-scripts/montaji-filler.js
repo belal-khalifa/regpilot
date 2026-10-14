@@ -127,8 +127,9 @@
     }
 
     const wanted = E.normalize(ingredient.inci_name)
-    let pick = await E.select2Pick(I.autocomplete, ingredient.inci_name, {
+    const pick = await E.select2Pick(I.autocomplete, ingredient.inci_name, {
       root: popup,
+      searchTerm: ingredient.inci_name,
       match: (text) => (E.normalize(text) === wanted ? 100 : 0),
     })
 
@@ -136,6 +137,7 @@
     if (!pick.ok) {
       const other = await E.select2Pick(I.autocomplete, I.otherOption, {
         root: popup,
+        searchTerm: 'Other',
         match: (text) => (E.normalize(text) === E.normalize(I.otherOption) ? 100 : 0),
       })
       if (!other.ok) {
@@ -217,6 +219,21 @@
     }
   }
 
+  // Adding a variant creates a new row in the variants grid, but the form below stays bound to the
+  // row that was selected before. The new (last) row has to be clicked for its blank form to load.
+  async function selectLastVariantRow() {
+    const grid = (E.findButton('Add New Variant') || {}).closest ? E.findButton('Add New Variant').closest('.mx-grid') : null
+    if (!grid) return false
+    const rows = Array.from(grid.querySelectorAll('tbody tr')).filter(E.isVisible)
+    const last = rows[rows.length - 1]
+    if (!last) return false
+    const cell = last.querySelector('td') || last
+    cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }))
+    cell.click()
+    return true
+  }
+
   async function fillVariants(data, report) {
     const V = F.variant
     const variants = data.variants && data.variants.length ? data.variants : [{}]
@@ -232,13 +249,19 @@
           return
         }
         await E.sleep(2000)
-        const fresh = await E.waitFor(() => E.findInput(V.page, V.barcode), { timeout: 10000 })
-        if (!fresh) {
-          info(report, `Variant ${i + 1}`, 'The new variant form did not appear.')
+        if (!(await selectLastVariantRow())) {
+          info(report, `Variant ${i + 1}`, 'Added, but could not select its row in the variants list.')
           return
         }
-        if (fresh.value.trim()) {
-          // Never overwrite a variant that already has data.
+        // Wait for the blank form of the newly selected row; never write over another variant.
+        const blank = await E.waitFor(
+          () => {
+            const el = E.findInput(V.page, V.barcode)
+            return el && !el.value.trim() ? el : null
+          },
+          { timeout: 10000 },
+        )
+        if (!blank) {
           info(report, `Variant ${i + 1}`, 'The form still shows the previous variant - stopped to avoid overwriting it.')
           return
         }

@@ -315,6 +315,31 @@ fields there. At the bottom:
 **The full 5-step wizard has now been walked end-to-end once, live, in production**,
 with one real variant and one real ingredient saved successfully (never submitted).
 
+## Fill code - live test results (2026-10-14)
+
+The fill code was injected into the live Montaji tab (page context, with a stand-in for the
+extension's storage) and run against a throwaway draft under the DM STACEY ACCOUNT company
+(always use that one for testing). Findings that changed the code:
+
+- **Ingredient lookups need a typed search term.** Opening the dropdown alone leaves it on
+  "Searching..." indefinitely. Typing into `.select2-search__field` (native setter + input/keyup)
+  triggers the lookup, which returns the whole crowd-sourced list (1,100+ entries with many
+  near-duplicates such as "AQUA", "Aqua", "AQUA (WATER)"). The first lookup is slow (~10 s) and
+  can freeze the tab briefly; later ones were quick. Exact case-insensitive matching found
+  "AQUA" and "SILICA"; anything else falls back to `***Other***` + the typed name.
+- **Montaji reformats numbers** ("4" becomes "4.00"), so a strict equality check reported a false
+  failure on Size/Volume. The commit check now compares numerically.
+- **A second variant needs its row selected.** "Add New Variant" appends a row to the variants
+  grid but the form stays bound to the previously selected row, so the new (last) row must be
+  clicked before filling, otherwise variant 1 would be overwritten.
+- Confirmed working: Step 2 (country via alias-aware matching, name, Group/Category/Sub-Category,
+  brand) accepted by Montaji with no validation errors; Step 4 text, native selects, Yes/No radios,
+  shelf life, and the ingredient popup; per-variant "Save and Validate" passed.
+- End state verified from Montaji's own grids (not just the extension's report): two variants with
+  their own barcodes and shades, and the right ingredients with percentages on the selected one.
+- **Not yet tested:** the real packaged extension (isolated content-script world, real
+  `chrome.runtime` storage, data arriving from the RegPilot site) and the Step 1/3/5 messages.
+
 ## Still to do
 1. ~~Sub Variant Information selectors~~ — **done**, see the table in Step 4.
 2. Confirm the Country of Origin → Free Sale/GMP conditional behavior on Step 3

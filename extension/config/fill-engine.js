@@ -75,7 +75,15 @@
     el.dispatchEvent(new Event('change', { bubbles: true }))
     el.dispatchEvent(new FocusEvent('blur'))
     el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
-    return el.value === text
+    return sameValue(el.value, text)
+  }
+
+  // Montaji reformats numbers ("4" becomes "4.00"), so compare numerically when both are numbers.
+  function sameValue(actual, wanted) {
+    if (actual === wanted) return true
+    const a = Number(String(actual).replace(/,/g, ''))
+    const w = Number(String(wanted).replace(/,/g, ''))
+    return String(actual).trim() !== '' && String(wanted).trim() !== '' && !Number.isNaN(a) && !Number.isNaN(w) && a === w
   }
 
   async function fillText(page, widget, value, { root = document, timeout = 6000 } = {}) {
@@ -138,7 +146,7 @@
   }
 
   // matcher(optionText) -> number (0 = no match, higher = better). Default: exact, ignoring case/space.
-  async function select2Pick(wrapperSelectorOrEl, wantedText, { match, root = document, timeout = 9000 } = {}) {
+  async function select2Pick(wrapperSelectorOrEl, wantedText, { match, searchTerm, root = document, timeout = 40000 } = {}) {
     const wrapper =
       typeof wrapperSelectorOrEl === 'string'
         ? await waitFor(
@@ -155,20 +163,48 @@
     const matcher = match || ((text) => (normalize(text) === normalize(wantedText) ? 100 : 0))
 
     const rendered = wrapper.querySelector('.select2-selection__rendered')
-    if (rendered && matcher(rendered.textContent) >= 100) return { ok: true, already: true }
+    const renderedText = rendered ? rendered.textContent.replace(/^\s*\u00d7\s*/, '') : ''
+    if (renderedText && matcher(renderedText) >= 100) return { ok: true, already: true }
 
     closeOpenSelect2()
     await sleep(150)
     fire(selection, 'mousedown')
 
-    // Options arrive from the server; "Searching..." and "No results found." are not real options.
-    const options = await waitFor(
-      () => {
-        const items = optionEls().filter((li) => !/^(searching|no results found)/i.test(li.textContent.trim()))
-        return items.length ? items : null
-      },
-      { timeout },
-    )
+    // Options arrive from the server. Some widgets (the ingredient list) only look anything up once
+    // something is typed into the search box, so if nothing real has loaded after a moment we type
+    // the search term. "Searching..." and "No results found." are never real options.
+    const term = searchTerm !== undefined ? searchTerm : wantedText
+    const isReal = (li) => !/^(searching|no results found)/i.test(li.textContent.trim())
+    const started = Date.now()
+    let typedAt = 0
+    let options = null
+    while (Date.now() - started < timeout) {
+      const all = optionEls()
+      const real = all.filter(isReal)
+      if (real.length) {
+        options = real
+        break
+      }
+      const stillSearching = all.some((li) => /^searching/i.test(li.textContent.trim()))
+      if (!typedAt && term && Date.now() - started > 1500) {
+        const field = Array.from(document.querySelectorAll('.select2-search__field')).find(isVisible)
+        if (field) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+          field.focus()
+          setter.call(field, term)
+          field.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))
+          field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: term }))
+          field.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }))
+          typedAt = Date.now()
+        }
+      }
+      // After a typed search, a settled "No results found." means the option genuinely is not there.
+      if (typedAt && !stillSearching && all.length && Date.now() - typedAt > 1500) {
+        closeOpenSelect2()
+        return { ok: false, reason: 'option-not-found' }
+      }
+      await sleep(300)
+    }
     if (!options) {
       closeOpenSelect2()
       return { ok: false, reason: 'no-options-loaded' }
