@@ -1,23 +1,70 @@
 import { useState } from 'react'
-import { useRegPilotExtension, requestMontajiFill } from '../lib/useRegPilotExtension'
-import type { ExtractedProductData } from '../lib/types'
+import { supabase } from '../lib/supabase'
+import {
+  useRegPilotExtension,
+  requestMontajiFill,
+  type QueuedFile,
+} from '../lib/useRegPilotExtension'
+import type { ExtractedProductData, ProductDocument } from '../lib/types'
+
+// Keeps what is held in the extension (and in memory here) to a sensible size.
+const MAX_TOTAL_BYTES = 25 * 1024 * 1024
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '')
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
 
 export default function MontajiFillPanel({
   productName,
   data,
+  documents,
 }: {
   productName: string
   data: ExtractedProductData
+  documents: ProductDocument[]
 }) {
   const installed = useRegPilotExtension()
   const [queuing, setQueuing] = useState(false)
   const [queued, setQueued] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [sentFiles, setSentFiles] = useState(0)
 
   async function handleFill() {
     setQueuing(true)
-    const ok = await requestMontajiFill(productName, data)
+    setNotice(null)
+
+    const files: QueuedFile[] = []
+    const left: string[] = []
+    let total = 0
+    for (const doc of documents) {
+      const { data: blob } = await supabase.storage.from('product-documents').download(doc.storage_path)
+      if (!blob || total + blob.size > MAX_TOTAL_BYTES) {
+        left.push(doc.file_name)
+        continue
+      }
+      total += blob.size
+      files.push({
+        id: doc.id,
+        docType: doc.doc_type,
+        name: doc.file_name,
+        type: doc.content_type,
+        size: blob.size,
+        base64: await blobToBase64(blob),
+      })
+    }
+
+    const ok = await requestMontajiFill(productName, data, files)
     setQueuing(false)
     setQueued(ok)
+    setSentFiles(files.length)
+    if (left.length) {
+      setNotice(`Not sent to the extension (too large or unreadable): ${left.join(', ')}`)
+    }
   }
 
   return (
@@ -40,12 +87,16 @@ export default function MontajiFillPanel({
           Queued. Open Montaji in another tab — a RegPilot panel will appear with a "Fill this
           step" button for each step of the wizard. Nothing submits automatically; you review and
           click Next and Submit yourself on Montaji.
+          {sentFiles > 0 &&
+            ` ${sentFiles} document${sentFiles === 1 ? ' is' : 's are'} ready too: the panel will ask you to confirm before uploading any of them.`}
         </p>
       ) : (
         <>
           <p className="font-text text-[14px] leading-[1.47] text-ink-muted-80">
             Stay logged into Montaji in another tab. This sends your reviewed data to the
             extension — it only fills a step when you click "Fill this step" there yourself.
+            {documents.length > 0 &&
+              ' Your uploaded documents travel with it, and are only attached on Montaji after you confirm there.'}
           </p>
           <button
             type="button"
@@ -57,6 +108,7 @@ export default function MontajiFillPanel({
           </button>
         </>
       )}
+      {notice && <p className="font-text text-[13px] text-status-rejected">{notice}</p>}
     </div>
   )
 }

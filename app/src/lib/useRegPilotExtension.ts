@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react'
-import type { ExtractedProductData } from './types'
+import type { DocumentType, ExtractedProductData } from './types'
+
+// One uploaded document, carried to the extension so it can be attached on Montaji after the person
+// confirms there. Bytes are base64 because they cross the page/extension boundary as plain data.
+export type QueuedFile = {
+  id: string
+  docType: DocumentType
+  name: string
+  type: string
+  size: number
+  base64: string
+}
 
 const EXTENSION_READY_ATTR = 'data-regpilot-extension'
 
@@ -18,7 +29,11 @@ export function useRegPilotExtension() {
   return installed
 }
 
-export function requestMontajiFill(productName: string, data: ExtractedProductData) {
+export function requestMontajiFill(
+  productName: string,
+  data: ExtractedProductData,
+  files: QueuedFile[] = [],
+) {
   return new Promise<boolean>((resolve) => {
     const handler = (event: Event) => {
       window.removeEventListener('regpilot:fill-queued', handler)
@@ -26,12 +41,12 @@ export function requestMontajiFill(productName: string, data: ExtractedProductDa
     }
     window.addEventListener('regpilot:fill-queued', handler)
     window.dispatchEvent(
-      new CustomEvent('regpilot:fill-request', { detail: { productName, data } }),
+      new CustomEvent('regpilot:fill-request', { detail: { productName, data, files } }),
     )
-    // Safety timeout in case the extension doesn't respond
+    // Safety timeout in case the extension doesn't respond (saving large files takes a moment)
     setTimeout(() => {
       window.removeEventListener('regpilot:fill-queued', handler)
       resolve(false)
-    }, 2000)
+    }, 20000)
   })
 }

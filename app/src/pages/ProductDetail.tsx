@@ -182,7 +182,11 @@ export default function ProductDetail() {
               )}
 
               {FILLABLE_STATUSES.includes(product.status) && (
-                <MontajiFillPanel productName={product.name} data={extractedData ?? {}} />
+                <MontajiFillPanel
+                  productName={product.name}
+                  data={extractedData ?? {}}
+                  documents={documents}
+                />
               )}
             </>
           )}

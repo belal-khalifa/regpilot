@@ -52,6 +52,17 @@ globalThis.RegPilot.FIELDS = {
   },
 }
 
+// Document upload sections on the Attachments step (certificate) and at the bottom of the variant
+// form (artwork, ingredients report). Each is found by its visible heading, then its own "Upload"
+// button, so no Mendix widget ids are involved. Patterns are matched against the heading text with
+// asterisks and colons removed.
+globalThis.RegPilot.ATTACHMENT_SLOTS = {
+  freeSale: { label: 'Free Sales Certificate', pattern: /^free sales?( certificate)?$/i },
+  gmp: { label: 'GMP certificate', pattern: /^(gmp|good manufacturing practices?)( certificate)?$/i },
+  artwork: { label: 'Artwork', pattern: /^artwork$/i },
+  ingredientsReport: { label: 'Ingredients Report', pattern: /^ingredients? report$/i },
+}
+
 // Plain-English country names an AI or a label might use, mapped to the spelling Montaji lists.
 // Anything not covered falls back to a contains-match and, failing that, is left for the person.
 globalThis.RegPilot.COUNTRY_ALIASES = {

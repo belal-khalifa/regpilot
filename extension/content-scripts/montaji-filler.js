@@ -408,15 +408,163 @@
     }
   }
 
+  // --- attachments (uploaded only after the person confirms in the panel) --------------------
+
+  const SLOTS = RP.ATTACHMENT_SLOTS
+  const isUae = (country) => /^(uae|u\.a\.e\.?|united arab emirates)$/i.test(String(country || '').trim())
+
+  // The documents RegPilot sent, matched to the Montaji upload section each one belongs in for the
+  // wizard step on screen. Nothing here touches the page.
+  function plannedUploads(step) {
+    const docs = (pending && pending.documents) || []
+    const data = (pending && pending.data) || {}
+    const plan = []
+    for (const doc of docs) {
+      let slot = null
+      if (step === 'attachments' && doc.docType === 'certificate_free_sale') {
+        slot = isUae(data.country_of_origin) ? SLOTS.gmp : SLOTS.freeSale
+      } else if (step === 'variants') {
+        if (doc.docType === 'label_artwork') slot = SLOTS.artwork
+        else if (doc.docType === 'formula_ingredient_list') slot = SLOTS.ingredientsReport
+      }
+      if (slot) plan.push({ doc, slot })
+    }
+    return plan
+  }
+
+  const ownText = (node) =>
+    Array.from(node.childNodes)
+      .filter((n) => n.nodeType === 3)
+      .map((n) => n.textContent)
+      .join('')
+      .replace(/[*:]/g, '')
+      .trim()
+
+  // A section's own "Upload" button is the first one that follows its heading in page order.
+  function findSlotUploadButton(pattern) {
+    const host = document.getElementById(HOST_ID)
+    const headings = Array.from(document.body.querySelectorAll('*')).filter(
+      (n) => !(host && host.contains(n)) && ownText(n) && pattern.test(ownText(n)) && E.isVisible(n),
+    )
+    const buttons = Array.from(document.querySelectorAll('button, [role="button"]')).filter(
+      (b) => E.isVisible(b) && E.normalize(b.textContent) === 'upload' && !(host && host.contains(b)),
+    )
+    for (const heading of headings) {
+      const button = buttons.find((b) => heading.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+      if (button) return button
+    }
+    return null
+  }
+
+  // Montaji's "Add Document" window: any open window that holds a file box.
+  const findUploadPopup = () =>
+    Array.from(document.querySelectorAll('.mx-window-active, .modal-dialog, .mx-window')).find(
+      (n) => E.isVisible(n) && n.querySelector('input[type="file"]'),
+    )
+
+  const occurrences = (text) => {
+    const body = document.body.innerText || ''
+    return body.split(text).length - 1
+  }
+
+  async function loadDocumentBytes(id) {
+    const reply = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'GET_FILE', id }, (r) => resolve(r || {}))
+    })
+    if (!reply.base64) throw new Error('RegPilot no longer has this file queued - send the product again')
+    const binary = atob(reply.base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  }
+
+  async function uploadDocument({ doc, slot }, report) {
+    const label = `${slot.label}: ${doc.name}`
+    const fail = (detail) => report.push({ label, status: 'manual', detail })
+
+    if (findUploadPopup()) return fail('another Montaji window is already open - close it and try again')
+    const button = findSlotUploadButton(slot.pattern)
+    if (!button) return fail(`could not find the "${slot.label}" upload section on this page`)
+
+    const before = occurrences(doc.name)
+    if (before > 0) return info(report, label, 'already listed on this page - not uploaded again')
+
+    const bytes = await loadDocumentBytes(doc.id)
+    button.click()
+    const popup = await E.waitFor(findUploadPopup, { timeout: 8000 })
+    if (!popup) return fail('the upload window did not open')
+    const closePopup = () => {
+      const cancel = Array.from(popup.querySelectorAll('button')).find((b) => E.normalize(b.textContent) === 'cancel')
+      if (cancel) cancel.click()
+    }
+
+    const input = popup.querySelector('input[type="file"]')
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([bytes], doc.name, { type: doc.type || 'application/octet-stream' }))
+    input.files = transfer.files
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+
+    // Montaji echoes the chosen name into a text box once it has registered the file.
+    await E.waitFor(
+      () => Array.from(popup.querySelectorAll('input[type="text"]')).some((i) => i.value.includes(doc.name)),
+      { timeout: 3000 },
+    )
+
+    const confirmButton = Array.from(popup.querySelectorAll('button')).find((b) => E.normalize(b.textContent) === 'upload')
+    if (!confirmButton) {
+      closePopup()
+      return fail('no Upload button in the upload window')
+    }
+    confirmButton.click()
+
+    const closed = await E.waitFor(() => !findUploadPopup(), { timeout: 40000 })
+    if (!closed) {
+      const message = (popup.textContent.match(/Please[^.]*\./) || [''])[0].trim()
+      closePopup()
+      return fail(message || 'Montaji kept the upload window open')
+    }
+
+    await E.sleep(1500)
+    if (occurrences(doc.name) > before) report.push({ label, status: 'filled', detail: 'uploaded' })
+    else info(report, label, 'the window closed, but the file is not visible in the list yet - check it')
+  }
+
+  async function onUploadConfirmed(plan) {
+    if (running || !plan.length) return
+    running = true
+    ui.setBusy(true)
+    const report = []
+    ui.showResults(report)
+    try {
+      for (let i = 0; i < plan.length; i++) {
+        ui.setStatus(`Uploading file ${i + 1} of ${plan.length}...`)
+        await uploadDocument(plan[i], report)
+        ui.showResults(report.slice())
+      }
+      ui.setStatus('Uploads finished. Check the list on Montaji, then continue yourself.')
+    } catch (err) {
+      report.push({ label: 'Stopped', status: 'manual', detail: String(err && err.message ? err.message : err) })
+      ui.showResults(report.slice())
+      ui.setStatus('Stopped because of an error.')
+    } finally {
+      running = false
+      ui.setBusy(false)
+    }
+  }
+
   // --- the other steps ----------------------------------------------------------------------
 
   function certificateNote(data) {
     const country = (data.country_of_origin || '').trim()
     if (!country) return 'Upload the required certificate on Montaji (Free Sale for non-UAE products, GMP for UAE).'
-    const uae = /^(uae|u\.a\.e\.?|united arab emirates)$/i.test(country)
-    const kind = uae ? 'a GMP certificate' : 'a Certificate of Free Sale'
+    const kind = isUae(country) ? 'a GMP certificate' : 'a Certificate of Free Sale'
     const number = data.certificate_number ? ` Certificate number from your documents: ${data.certificate_number}.` : ''
-    return `Made in ${country}: Montaji needs ${kind}. Upload it yourself on this step.${number}`
+    const hasFile = ((pending && pending.documents) || []).some((d) => d.docType === 'certificate_free_sale')
+    const how = hasFile
+      ? 'Use the Documents box below to upload it after you confirm.'
+      : 'No certificate file was sent from RegPilot, so upload it yourself on this step.'
+    return `Made in ${country}: Montaji needs ${kind}. ${how}${number}`
   }
 
   async function runStep(step, data) {
@@ -430,6 +578,14 @@
       info(report, 'Certificate', certificateNote(data))
     } else if (step === 'variants') {
       await fillVariants(data, report)
+      const files = plannedUploads('variants')
+      if (files.length) {
+        info(
+          report,
+          'Documents',
+          'Artwork and ingredients report are uploaded per variant: open a variant, then use the Documents box below.',
+        )
+      }
       info(report, 'Next', 'Check the variant(s) and ingredients, then click Next yourself.')
     } else if (step === 'acknowledgement') {
       info(report, 'Submit', 'Review everything. Tick the declaration and submit yourself - RegPilot never does this.')
@@ -499,6 +655,11 @@
         li { font-size: 12px; line-height: 1.4; border-top: 1px solid #333; padding-top: 8px; }
         li b { display: block; font-size: 11px; margin-bottom: 1px; }
         li span { color: #cccccc; }
+        .docs { margin-top: 12px; border-top: 1px solid #333; padding-top: 10px; }
+        .docs h4 { font-size: 12px; font-weight: 600; margin: 0 0 6px; }
+        .docs p { font-size: 12px; line-height: 1.4; color: #cccccc; margin: 0 0 8px; }
+        .docs ul { margin: 0 0 8px; gap: 4px; }
+        .docs li { border-top: none; padding-top: 0; }
       `,
     })
 
@@ -510,6 +671,8 @@
     const fillBtn = el('button', { className: 'primary', textContent: 'Fill this step' })
     const clearBtn = el('button', { className: 'secondary', textContent: 'Clear' })
     const results = el('ul')
+    const docsBox = el('div', { className: 'docs' })
+    docsBox.style.display = 'none'
 
     const card = el('div', { className: 'card' }, [
       el('p', { className: 'eyebrow', textContent: 'RegPilot' }),
@@ -517,6 +680,7 @@
       stepLine,
       statusLine,
       el('div', { className: 'row' }, [fillBtn, clearBtn]),
+      docsBox,
       results,
     ])
     shadow.append(style, card)
@@ -528,8 +692,74 @@
       host.remove()
     })
 
+    // The Documents box. Files are only ever uploaded after the person presses "Yes, upload" here.
+    let docsKey = ''
+    let docsConfirming = false
+    let docsBusy = false
+
+    function renderDocs(step) {
+      const plan = plannedUploads(step)
+      const key = `${step}|${plan.map((p) => p.doc.id).join(',')}`
+      if (key === docsKey) return
+      docsKey = key
+      docsConfirming = false
+      drawDocs(step, plan)
+    }
+
+    function drawDocs(step, plan) {
+      docsBox.textContent = ''
+      if (!plan.length) {
+        docsBox.style.display = 'none'
+        return
+      }
+      docsBox.style.display = 'block'
+      const list = el(
+        'ul',
+        {},
+        plan.map((p) => el('li', {}, [el('strong', { textContent: p.doc.name }), el('span', { textContent: ` -> ${p.slot.label}` })])),
+      )
+      if (!docsConfirming) {
+        const openBtn = el('button', { className: 'primary', textContent: `Upload ${plan.length} file${plan.length === 1 ? '' : 's'}...` })
+        openBtn.disabled = running
+        openBtn.addEventListener('click', () => {
+          docsConfirming = true
+          drawDocs(step, plan)
+        })
+        docsBox.append(el('h4', { textContent: 'Documents for this step' }), list, openBtn)
+        return
+      }
+      const where =
+        step === 'variants'
+          ? 'They go to the variant that is open in the form right now. Make sure it is the right one.'
+          : 'They go into the matching upload section on this page.'
+      const yes = el('button', { className: 'primary', textContent: 'Yes, upload' })
+      const no = el('button', { className: 'secondary', textContent: 'Cancel' })
+      yes.addEventListener('click', async () => {
+        docsConfirming = false
+        docsBusy = true
+        drawDocs(step, plan)
+        await onUploadConfirmed(plan)
+        docsBusy = false
+        drawDocs(step, plan)
+      })
+      no.addEventListener('click', () => {
+        docsConfirming = false
+        drawDocs(step, plan)
+      })
+      docsBox.append(
+        el('h4', { textContent: `Upload these ${plan.length === 1 ? 'file' : 'files'} to Montaji?` }),
+        list,
+        el('p', { textContent: where }),
+        el('div', { className: 'row' }, [yes, no]),
+      )
+      yes.disabled = docsBusy
+    }
+
     ui = {
-      setStep: (step) => (stepLine.textContent = STEP_LABELS[step]),
+      setStep: (step) => {
+        stepLine.textContent = STEP_LABELS[step]
+        renderDocs(step)
+      },
       setStatus: (text) => (statusLine.textContent = text),
       setBusy: (busy) => {
         fillBtn.disabled = busy

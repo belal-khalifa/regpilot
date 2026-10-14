@@ -22,14 +22,29 @@ touches the declaration tick-box, and never sees your Montaji password.
    yourself (for example uploading attachments) and anything it skipped.
 4. You press Next / Save and Validate / Submit on Montaji yourself.
 
+## Uploading documents
+
+Documents you uploaded in RegPilot travel with "Send to extension". They are only attached on
+Montaji after you confirm in the panel:
+
+1. On Step 3 (certificate) or on a variant in Step 4 (artwork, ingredients report) the panel shows a
+   **Documents** box listing each file and the Montaji section it belongs in.
+2. Press **Upload N files...**, read the list, then press **Yes, upload**. Cancel does nothing.
+3. Variants: files go to the variant that is open in the form, so open the right variant first.
+   A file whose name is already listed on the page is not uploaded a second time.
+
+The certificate goes to "Free Sales Certificate" when the country of origin is not UAE and to the
+GMP section when it is. If Montaji has no such section on the page, the panel says so and nothing
+is uploaded.
+
 ## Steps
 
 | Montaji step | What the extension does |
 | --- | --- |
 | 1 Acknowledgement | Nothing. You tick and continue yourself. |
 | 2 Product base | Country, name, group, category, sub-category, brand (classification is skipped when the AI was not confident). |
-| 3 Attachments | Nothing yet. A list tells you which certificate to upload (Free Sale when the country of origin is not UAE, GMP when it is). |
-| 4 Variants | One variant per row: barcode, shade, scent, size, unit, date flags, shelf life, ingredients (Excel import), then Save and Validate. |
+| 3 Attachments | Tells you which certificate is needed (Free Sale when the country of origin is not UAE, GMP when it is) and offers to upload it after you confirm. |
+| 4 Variants | One variant per row: barcode, shade, scent, size, unit, date flags, shelf life, ingredients (Excel import), then Save and Validate. Artwork and ingredients report can be uploaded after you confirm. |
 | 5 Declaration | Nothing. You review and submit yourself. |
 
 ## Files

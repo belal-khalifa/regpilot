@@ -6,10 +6,27 @@
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'STORE_FILL_DATA') {
-    chrome.storage.local.set({ pendingFill: message.payload }, () => {
-      sendResponse({ ok: true })
+    // The document bytes travel with the product but are kept apart from it, so the small
+    // product record stays quick to read and a file is only loaded when it is about to be uploaded.
+    const { files = [], ...rest } = message.payload || {}
+    const pendingFill = {
+      ...rest,
+      documents: files.map(({ id, docType, name, type, size }) => ({ id, docType, name, type, size })),
+    }
+    const pendingFiles = {}
+    for (const file of files) pendingFiles[file.id] = file.base64
+    chrome.storage.local.set({ pendingFiles }, () => {
+      chrome.storage.local.set({ pendingFill }, () => sendResponse({ ok: !chrome.runtime.lastError }))
     })
     return true // keep the message channel open for the async sendResponse
+  }
+
+  if (message.type === 'GET_FILE') {
+    chrome.storage.local.get('pendingFiles', (result) => {
+      const files = result.pendingFiles || {}
+      sendResponse({ base64: files[message.id] || null })
+    })
+    return true
   }
 
   if (message.type === 'GET_FILL_DATA') {
@@ -20,7 +37,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'CLEAR_FILL_DATA') {
-    chrome.storage.local.remove('pendingFill', () => {
+    chrome.storage.local.remove(['pendingFill', 'pendingFiles'], () => {
       sendResponse({ ok: true })
     })
     return true
