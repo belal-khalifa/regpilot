@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RegPilot for Montaji",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Fills your reviewed RegPilot product data into the Montaji cosmetics registration form. You stay logged into Montaji yourself and click Submit — RegPilot never sees your Montaji password.",
   "icons": {
     "16": "icons/icon16.png",
