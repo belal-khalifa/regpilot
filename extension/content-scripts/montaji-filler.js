@@ -174,10 +174,14 @@
   }
 
   async function loadTemplateBytes() {
-    const url = chrome.runtime.getURL('assets/Ingredient_sample.xlsx')
-    const response = await fetch(url)
-    if (!response.ok) throw new Error('could not read the bundled ingredient template')
-    return response.arrayBuffer()
+    const reply = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'GET_INGREDIENT_TEMPLATE' }, (r) => resolve(r || {}))
+    })
+    if (!reply.base64) throw new Error('could not read the bundled ingredient template')
+    const binary = atob(reply.base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
   }
 
   // Returns { ok, added, reason }. Never leaves the import popup open.

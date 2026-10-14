@@ -72,3 +72,71 @@ export function validateClassification(input: Classification): Classification {
     classification_confidence: confidence,
   }
 }
+
+type ReadinessInput = {
+  product_name?: string
+  brand_name?: string
+  country_of_origin?: string
+  montaji_group?: string
+  montaji_category?: string
+  classification_confidence?: ClassificationConfidence
+  variants?: Array<{
+    barcode?: string
+    color_shade?: string
+    scent_flavor?: string
+    size_volume?: string
+    volume_unit?: string
+  }>
+  ingredients?: Array<{ inci_name: string; percentage?: string }>
+  has_production_date?: boolean
+  has_expiry_date?: boolean
+  has_batch_number?: boolean
+  has_period_after_opening?: boolean
+}
+
+// What Montaji will refuse or stop on if it is still missing when the extension fills the form.
+// These are reminders for the person reviewing, not blockers: they can still save and fix on Montaji.
+export function montajiReadinessIssues(data: ReadinessInput): string[] {
+  const issues: string[] = []
+  if (!data.product_name) issues.push('Product name is missing.')
+  if (!data.brand_name) issues.push('Brand name is missing.')
+  if (!data.country_of_origin) issues.push('Country of origin is missing.')
+  if (!data.montaji_group || !data.montaji_category) {
+    issues.push('Montaji classification (group and category) is not set.')
+  } else if (data.classification_confidence === 'low') {
+    issues.push('Montaji classification is a low-confidence guess. Please confirm it.')
+  }
+
+  const variants = data.variants ?? []
+  variants.forEach((v, i) => {
+    const label = variants.length > 1 ? `Variant ${i + 1}` : 'The variant'
+    if (!v.barcode) issues.push(`${label}: barcode is missing.`)
+    if (!v.size_volume || !v.volume_unit) issues.push(`${label}: size and unit are required.`)
+    const shade = (v.color_shade ?? '').trim().toUpperCase()
+    const scent = (v.scent_flavor ?? '').trim().toUpperCase()
+    if (!shade || !scent) issues.push(`${label}: shade and scent are required (use NA if none).`)
+  })
+
+  const ingredients = data.ingredients ?? []
+  if (ingredients.length === 0) {
+    issues.push('No ingredients found. Montaji needs at least one with a percentage.')
+  } else {
+    const missing = ingredients.filter((i) => !String(i.percentage ?? '').trim()).length
+    if (missing > 0) {
+      issues.push(
+        `${missing} ingredient${missing === 1 ? '' : 's'} without a percentage. Montaji rejects the import unless every row has one; they will be left for you to add by hand.`,
+      )
+    }
+  }
+
+  const flags = [
+    data.has_production_date,
+    data.has_expiry_date,
+    data.has_batch_number,
+    data.has_period_after_opening,
+  ]
+  if (flags.some((f) => f === undefined)) {
+    issues.push('Production date, expiry date, batch number and period-after-opening: answer Yes or No for each.')
+  }
+  return issues
+}

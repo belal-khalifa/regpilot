@@ -37,14 +37,15 @@ export default function MontajiFillPanel({
         </>
       ) : queued ? (
         <p className="font-text text-[14px] leading-[1.47] text-status-approved">
-          Queued. Open Montaji in another tab — a RegPilot banner will appear with a "Fill form"
-          button. Nothing submits automatically; you review and click Submit yourself on Montaji.
+          Queued. Open Montaji in another tab — a RegPilot panel will appear with a "Fill this
+          step" button for each step of the wizard. Nothing submits automatically; you review and
+          click Next and Submit yourself on Montaji.
         </p>
       ) : (
         <>
           <p className="font-text text-[14px] leading-[1.47] text-ink-muted-80">
             Stay logged into Montaji in another tab. This sends your reviewed data to the
-            extension — it only fills the form when you click "Fill form" there yourself.
+            extension — it only fills a step when you click "Fill this step" there yourself.
           </p>
           <button
             type="button"

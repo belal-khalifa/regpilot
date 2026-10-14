@@ -5,6 +5,7 @@ import {
   SHELF_LIFE_PERIOD_TYPES,
   VOLUME_UNITS,
   categoriesForGroup,
+  montajiReadinessIssues,
   subCategoriesFor,
 } from '../lib/montajiFields'
 
@@ -123,6 +124,8 @@ export default function ExtractionReviewForm({
         })),
     }
   }
+
+  const readinessIssues = montajiReadinessIssues(buildData())
 
   async function handleSave(markReady: boolean) {
     setSaving(markReady ? 'ready' : 'save')
@@ -540,6 +543,19 @@ export default function ExtractionReviewForm({
           onChange={(e) => setNotes(e.target.value)}
         />
       </label>
+
+      {readinessIssues.length > 0 && (
+        <div className="flex flex-col gap-1 rounded-[18px] border border-hairline p-4">
+          <p className="font-text text-[14px] font-semibold text-ink">
+            Before you send this to Montaji
+          </p>
+          <ul className="list-disc pl-5 font-text text-[14px] leading-[1.47] text-ink-muted-80">
+            {readinessIssues.map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-3">
         <button

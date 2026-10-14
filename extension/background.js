@@ -26,5 +26,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true
   }
 
+  // The Montaji page's own security rules can block a page script from reading files inside the
+  // extension, so the ingredient spreadsheet template is read here and handed over as base64.
+  if (message.type === 'GET_INGREDIENT_TEMPLATE') {
+    fetch(chrome.runtime.getURL('assets/Ingredient_sample.xlsx'))
+      .then((response) => response.arrayBuffer())
+      .then((buffer) => {
+        const bytes = new Uint8Array(buffer)
+        let binary = ''
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
+        }
+        sendResponse({ base64: btoa(binary) })
+      })
+      .catch((error) => sendResponse({ error: String(error) }))
+    return true
+  }
+
   return false
 })
