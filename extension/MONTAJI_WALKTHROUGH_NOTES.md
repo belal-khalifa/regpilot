@@ -79,6 +79,18 @@ Attachments → Products Variants → Acknowledgement.
   `$.fn.select2` — can't just set the hidden select's value + trigger change.
   **Must fill like a real user**: click wrapper to open → type into the now-visible
   `.select2-search__field` → click the matching `li.select2-results__option`.
+- **Text inputs commit on blur — the plain native-setter trick is NOT enough.**
+  Setting the value and dispatching `input`/`change` made the text appear on screen
+  but Montaji's model didn't take it: clicking Next raised "A value must be
+  entered" on the field. What worked (tested on Brand Other): dispatch
+  `FocusEvent('focus')` + `focusin`, set the value with the native setter, dispatch
+  `keydown` → `InputEvent('input')` → `keyup` → `change`, then explicitly dispatch
+  `FocusEvent('blur')` + `focusout`. The explicit blur matters because calling
+  `element.blur()` doesn't fire when the tab/window isn't focused. **The fill
+  engine's `setNativeValue` needs this fuller sequence.** The validation message
+  cleared immediately and the wizard advanced.
+- Select2 autocompletes (Group/Category/Sub-Category) *did* commit correctly from
+  synthetic `mousedown`/`mouseup` alone — no extra events needed.
 - A draft/request number (e.g. `CPRED-041026-373608`) gets created server-side the
   moment you advance past Step 1 — normal, not a submission, but worth knowing it's
   not purely client-side from that point on.
@@ -175,8 +187,39 @@ Name, Color, Size/weight.
 - **Has period after opening?** — Yes/No radio
 - **Package Type** — dropdown ("Select an item from the dropdown...")
 
-None of these widgets' ids/classes were captured yet (portal went down before
-inspecting) — need real selectors next session.
+**Real selectors — captured in a focused label-by-label pass (2026-10-14).** Page
+is `CPRE_Reg_ProductInformation`, module prefix `409`. Ids carry the unstable
+`_xxx_NN` suffix (seen `_lea_NNN`), so match with `[id*="CPRE_Reg_ProductInformation.<widget>"]`
+scoped by tag. Barcode and Size have no `mx-name-` wrapper class; the rest do.
+
+| Field | Required | Widget | Notes |
+|---|---|---|---|
+| International Barcode | yes | `input` `textBox6` | no mx-name wrapper |
+| Variant Name | yes | `input` `textBox19` (`.mx-name-textBox19`) | pre-filled from Step 2 Name |
+| Product Color / Shade | yes | `input` `textBox20` | |
+| Size / Weight / Volume | yes | `input` `textBox23` | defaults to `0.00`, no mx-name wrapper |
+| Weight / Volume Unit | yes | `select` `dropDown7` (`.mx-name-dropDown7`) | values: `ML`, `Caplet`, `Capsules`, `Gummies`, `Kg`, `L`, `Others`, `Powder`, `Soft_Gel`, `Tablets`, `g`, `mg` (note `Soft_Gel` value, label "Soft Gel") |
+| Scent / Flavor | yes | `input` `textBox22` | |
+| Has Production Date? | no | radios `radioButtons4` | values `Yes` / `No` |
+| Has Expiry Date? | no | radios `radioButtons3` | values `Yes` / `No` |
+| Has Batch Number? | no | radios `radioButtons1` | values `Yes` / `No` |
+| Shelf Life | no | `input` `textBox24` | |
+| Shelf Life Period Type | no | `select` `dropDown8` | values: `Days`, `weeks`, `Months`, `Years` (note lowercase `weeks`) |
+| Has period after opening? | no | radios `radioButtons5` | values `Yes` / `No` |
+| Package Type | no | autocomplete `.mx-name-autoCompleteForMendix3` | **skip** — see below |
+
+- **Package Type is not a controlled list.** Opening it loads **536** free-text
+  packaging descriptions entered by other companies ("Wooden Pencil", "50ml
+  product packed in white bottle HDPE, Cap 18MM…"). Options are fetched from the
+  server (shows "Searching..." for a second or two). It's optional, so v1 leaves
+  it blank.
+- **Only 6 fields are required** here: Barcode, Variant Name, Color/Shade,
+  Size/Weight/Volume, Unit, Scent/Flavor. Everything else on this form is optional.
+- **Gap versus today's extraction:** RegPilot's Gemini schema doesn't extract
+  barcode, color/shade, size/volume, unit or scent/flavor yet — those need adding.
+- **Scoping caution:** the Step 4 page also renders a read-only "Product Base
+  Information" recap (ids under `CPRE_Product_RegProductBaseInformation`, all
+  disabled). Never match on `409.` alone — include `CPRE_Reg_ProductInformation`.
 
 **"Ingredients" section** (below Sub Variant Information) — its own grid, separate
 from the Attachments' "Ingredients Report" file upload:
@@ -273,14 +316,7 @@ fields there. At the bottom:
 with one real variant and one real ingredient saved successfully (never submitted).
 
 ## Still to do
-1. Get clean, confidently-labeled real selectors for the "Sub Variant Information"
-   fields (International Barcode, Product Color/Shade, Size/Weight/Volume, Weight/
-   Volume Unit, Scent/Flavor, the three Yes/No radios, Shelf Life, Shelf Life
-   Period Type, Package Type). A broad selector dump was captured mid-session
-   (`mx-name-referenceSelector13-16`, `mx-name-dropDown7`/`dropDown8`, plus one
-   unlabeled select) but wasn't confidently matched back to field labels one-by-one
-   — redo this as a focused pass, screenshotting the fields in order right before
-   querying, rather than trusting a bulk unscoped query.
+1. ~~Sub Variant Information selectors~~ — **done**, see the table in Step 4.
 2. Confirm the Country of Origin → Free Sale/GMP conditional behavior on Step 3
    (still unverified live — only have Belal's description of the rule).
 3. Figure out the unlabeled toggle on Step 2 if it turns out to matter.
