@@ -14,20 +14,36 @@ four separate times during this session — every time the draft survived and we
 resumed exactly where we left off, so that pattern seems reliably safe for future
 sessions too.
 
-**Active task (new, started after the walkthrough above): crawling Montaji's full
-Group → Category → Sub-Category taxonomy** as static reference data, so AI
-classification can be constrained to real values instead of free text (per Belal's
-direction — automate taxonomy matching too, with a confidence gate deciding
-auto-fill vs. flag-for-review, working toward eventually trusting full automation
-once confidence is proven). Plan: since Country of Origin's ~243 options loaded
-into the DOM on open with no typing needed (same pattern as the Ingredients
-catalog), Group/Category/Sub-Category almost certainly work the same way —
-read the option lists directly via JS rather than clicking through the UI.
-Category depends on Group and Sub-Category depends on Category, so this needs
-one pass per Group to capture its valid Categories, then per Category for
-Sub-Categories. **Not started yet — portal went down (4th time) right as we
-navigated back to Step 2 to begin this.** Resume: get back to the "New Product
-Base Information" form (Step 2) on the existing draft, open each dropdown.
+**Taxonomy crawl (Group → Category → Sub-Category) — done for the two groups that
+matter, saved to `extension/reference/montaji-taxonomy.json`.** Goal (per Belal):
+constrain AI classification to real Montaji values instead of free text, with a
+confidence gate deciding auto-fill vs. flag-for-review, working toward trusting
+full automation once confidence is proven.
+- **Correction to the earlier assumption:** unlike Country of Origin (all ~243
+  options present immediately), Group/Category/Sub-Category options are **lazy-loaded
+  and dependent** — the underlying `<select>` is empty until the dropdown is
+  opened, and Category/Sub-Category only populate after their parent is chosen.
+- Captured: **Cosmetics and Personal care Products** (19 Categories) and
+  **Fragrances** (10 Categories). Detergents, Biocides, Health Supplements were
+  skipped on purpose — Belal will provide a master sheet later.
+- **Big simplification:** almost every Category has exactly one Sub-Category,
+  `Undefined`. Exceptions: Hair and scalp products (+ "Hair and scalp care and
+  cleansing products"), Body Care Preparations (+ "Correction of body odor and/or
+  perspiration"), Hotel amenities (+ "Hair Care", "Hand Care"), and Fragrances'
+  "Air Fresheners   Home Fragrances" (sub-category is "Other"). So the real
+  classification problem is **Group (5) + Category (~19)**, with Sub-Category
+  defaulting to `Undefined` unless the Category has others.
+- **Technique that works for the fill engine's autocomplete filler:** these
+  Select2 dropdowns respond to *synthetic* events — `mousedown` dispatched on
+  `.mx-name-<widget> .select2-selection` opens it; `mouseup` dispatched on the
+  matching `li.select2-results__option` selects it. No typing needed. Wait ~500ms
+  after opening for options to render and ~800–1000ms after picking before
+  touching the dependent dropdown (Group → Category → Sub-Category must be filled
+  in that order, each after the previous one's options have loaded). Dropdowns
+  toggle: `mousedown` on an already-open one closes it, so check
+  `.select2-container--open` first. Widget names (Step 2 form):
+  `autoCompleteForMendix4` = Group, `…2` = Category, `…3` = Sub-Category.
+  (These class numbers are only unique per form instance — scope to the open form.)
 
 **What's left is not more exploration, it's turning this into working code** — see
 "Still to do" at the bottom for the concrete remaining list (mainly: a focused pass
