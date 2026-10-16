@@ -4,3 +4,6 @@ dist/
 .env.local
 .netlify/
 .DS_Store
+
+# real client documents must never be committed
+test-documents/Real*/

@@ -18,9 +18,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY as string
 // The newest flash model is sometimes overloaded (503); the lite model is the fallback and was
 // verified to extract shades, barcodes and classification correctly.
 const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest']
-const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
-const TIME_BUDGET_MS = 20_000
-const HARD_LIMIT_MS = 24_000
+const HARD_LIMIT_MS = 25_000
 
 const TAXONOMY_FOR_PROMPT = Object.entries(MONTAJI_TAXONOMY)
   .map(([group, cats]) => {
@@ -212,61 +210,80 @@ const extractHandler: Handler = async (event) => {
     }
   }
 
-  const requestBody = JSON.stringify({
-    contents: [{ parts }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: EXTRACTION_SCHEMA,
-    },
-  })
+  const buildBody = (withThinkingOff: boolean) =>
+    JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: EXTRACTION_SCHEMA,
+        // Reading a form does not need a long reasoning pass, and that pass is what makes scanned
+        // PDFs slow enough to hit Netlify's time limit.
+        ...(withThinkingOff ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+      },
+    })
 
   const startedAt = Date.now()
-  let geminiRes: Response | null = null
-  let lastError = ''
-  outer: for (const model of GEMINI_MODELS) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      if (Date.now() - startedAt > TIME_BUDGET_MS) break outer
-      let res: Response
-      try {
-        res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: requestBody,
-            // Netlify cuts a function off around 26s with an unreadable gateway page, so each
-            // attempt gets a deadline that leaves time to try the lighter model or to answer.
-            signal: AbortSignal.timeout(Math.max(4000, Math.min(15000, HARD_LIMIT_MS - (Date.now() - startedAt)))),
-          },
-        )
-      } catch (err) {
-        lastError = `${model} network error: ${err instanceof Error ? err.message : String(err)}`
-        console.error('Gemini request failed', lastError)
-        await new Promise((r) => setTimeout(r, 1200))
-        continue
-      }
-      if (res.ok) {
-        geminiRes = res
-        break outer
-      }
-      lastError = `${model} ${res.status}: ${(await res.text()).slice(0, 300)}`
-      console.error('Gemini error', lastError)
-      if (!RETRYABLE_STATUS.has(res.status)) break
-      await new Promise((r) => setTimeout(r, 1200))
+  const errors: string[] = []
+
+  // One request to one model. Resolves with the parsed reply or rejects with a readable reason.
+  async function askModel(model: string, signal: AbortSignal): Promise<Record<string, unknown>> {
+    for (const withThinkingOff of [true, false]) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: buildBody(withThinkingOff), signal },
+      )
+      if (res.ok) return (await res.json()) as Record<string, unknown>
+      const text = (await res.text()).slice(0, 300)
+      // Some models refuse a thinking setting; ask again without it.
+      if (res.status === 400 && withThinkingOff && /think/i.test(text)) continue
+      throw new Error(`${model} ${res.status}: ${text}`)
     }
+    throw new Error(`${model}: no usable answer`)
   }
 
-  if (!geminiRes) {
+  // Both models are asked at once and the first good answer wins: the lighter one usually answers
+  // well inside the time limit even when the stronger one is slow or overloaded.
+  let geminiJson: Record<string, unknown> | null = null
+  for (let round = 0; round < 2 && !geminiJson; round++) {
+    const remaining = HARD_LIMIT_MS - (Date.now() - startedAt)
+    if (remaining < 6000) break
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), remaining)
+    try {
+      geminiJson = await Promise.any(
+        GEMINI_MODELS.map((model) =>
+          askModel(model, controller.signal).catch((err) => {
+            const reason = err instanceof Error ? (err.name === 'AbortError' ? `${model} timed out` : err.message) : String(err)
+            errors.push(reason)
+            console.error('Gemini attempt failed', reason)
+            throw err
+          }),
+        ),
+      )
+    } catch {
+      // every model failed this round
+    } finally {
+      clearTimeout(timer)
+      controller.abort()
+    }
+    if (!geminiJson && Date.now() - startedAt < HARD_LIMIT_MS - 6000) await new Promise((r) => setTimeout(r, 1000))
+  }
+
+  if (!geminiJson) {
     return {
       statusCode: 502,
       body: JSON.stringify({
-        error: `The AI service is busy right now. Please try again in a minute. (${lastError.slice(0, 200)})`,
+        error: `The AI service did not answer in time. Please try again. (${errors.slice(-2).join(' | ').slice(0, 240)})`,
       }),
     }
   }
 
-  const geminiJson = await geminiRes.json()
-  const rawText = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text
+  const candidateParts = (geminiJson as { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }> })
+    .candidates?.[0]?.content?.parts
+  const rawText = (candidateParts ?? [])
+    .filter((p) => !p.thought && typeof p.text === 'string')
+    .map((p) => p.text)
+    .join('')
   if (!rawText) {
     return { statusCode: 502, body: JSON.stringify({ error: 'Gemini returned no extractable content' }) }
   }
