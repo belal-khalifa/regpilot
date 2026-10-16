@@ -5,7 +5,6 @@ import {
   requestMontajiFill,
   type QueuedFile,
 } from '../lib/useRegPilotExtension'
-import { documentWarnings } from '../lib/montajiFields'
 import type { ExtractedProductData, ProductDocument } from '../lib/types'
 
 // Keeps what is held in the extension (and in memory here) to a sensible size.
@@ -30,7 +29,6 @@ export default function MontajiFillPanel({
   documents: ProductDocument[]
 }) {
   const installed = useRegPilotExtension()
-  const warnings = documentWarnings(data)
   const [queuing, setQueuing] = useState(false)
   const [queued, setQueued] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -94,15 +92,6 @@ export default function MontajiFillPanel({
         </p>
       ) : (
         <>
-          {warnings.length > 0 && (
-            <div className="flex flex-col gap-2 rounded-[18px] border border-status-rejected px-4 py-3">
-              {warnings.map((text) => (
-                <p key={text} className="font-text text-[14px] leading-[1.47] text-status-rejected">
-                  {text}
-                </p>
-              ))}
-            </div>
-          )}
           <p className="font-text text-[14px] leading-[1.47] text-ink-muted-80">
             Stay logged into Montaji in another tab. This sends your reviewed data to the
             extension — it only fills a step when you click "Fill this step" there yourself.

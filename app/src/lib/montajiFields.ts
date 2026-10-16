@@ -156,7 +156,6 @@ export function documentWarnings(data: ReadinessInput): string[] {
 // These are reminders for the person reviewing, not blockers: they can still save and fix on Montaji.
 export function montajiReadinessIssues(data: ReadinessInput): string[] {
   const issues: string[] = []
-  issues.push(...documentWarnings(data))
   if (!data.product_name) issues.push('Product name is missing.')
   if (!data.brand_name) issues.push('Brand name is missing.')
   if (!data.country_of_origin) issues.push('Country of origin is missing.')

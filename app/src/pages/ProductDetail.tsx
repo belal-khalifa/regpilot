@@ -6,6 +6,7 @@ import DocumentUploadSection from '../components/DocumentUploadSection'
 import ExtractionReviewForm from '../components/ExtractionReviewForm'
 import MontajiFillPanel from '../components/MontajiFillPanel'
 import { supabase } from '../lib/supabase'
+import { documentWarnings } from '../lib/montajiFields'
 import { useProductDocuments } from '../lib/useProductDocuments'
 import type { DocumentType, ExtractedProductData, Product, ProductStatus } from '../lib/types'
 
@@ -193,6 +194,22 @@ export default function ProductDetail() {
                 <p className="text-center font-text text-[14px] text-status-rejected">
                   {extractError}
                 </p>
+              )}
+
+              {product.status !== 'draft' && documentWarnings(extractedData ?? {}).length > 0 && (
+                <div
+                  role="alert"
+                  className="flex flex-col gap-2 rounded-[18px] border border-status-rejected bg-status-rejected/10 px-5 py-4"
+                >
+                  <p className="font-text text-[15px] font-semibold text-status-rejected">
+                    Check these documents before going further
+                  </p>
+                  {documentWarnings(extractedData ?? {}).map((text) => (
+                    <p key={text} className="font-text text-[14px] leading-[1.47] text-status-rejected">
+                      {text}
+                    </p>
+                  ))}
+                </div>
               )}
 
               {product.status !== 'draft' && (
