@@ -97,10 +97,13 @@ export default function MontajiFillPanel({
           <button
             type="button"
             onClick={() => setQueued(false)}
-            className="self-start font-text text-[13px] text-primary"
+            className="self-start rounded-full bg-primary px-[18px] py-[10px] font-text text-[15px] text-on-primary active:scale-95 transition-transform"
           >
-            Send again (for example after pressing Clear on Montaji)
+            Send again
           </button>
+          <p className="font-text text-[13px] text-ink-muted-48">
+            Use this after pressing Clear in the Montaji panel, or to send changes you saved since.
+          </p>
         </div>
       ) : (
         <>
