@@ -196,7 +196,7 @@ export default function ProductDetail() {
                 </p>
               )}
 
-              {product.status !== 'draft' && documentWarnings(extractedData ?? {}).length > 0 && (
+              {product.status !== 'draft' && !extracting && documentWarnings(extractedData ?? {}).length > 0 && (
                 <div
                   role="alert"
                   className="flex flex-col gap-2 rounded-[18px] border border-status-rejected bg-status-rejected/10 px-5 py-4"
