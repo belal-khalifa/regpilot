@@ -16,7 +16,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const pendingFiles = {}
     for (const file of files) pendingFiles[file.id] = file.base64
     chrome.storage.local.set({ pendingFiles }, () => {
-      chrome.storage.local.set({ pendingFill }, () => sendResponse({ ok: !chrome.runtime.lastError }))
+      if (chrome.runtime.lastError) {
+        sendResponse({ ok: false, error: `Could not store the documents: ${chrome.runtime.lastError.message}` })
+        return
+      }
+      chrome.storage.local.set({ pendingFill }, () => {
+        if (chrome.runtime.lastError) sendResponse({ ok: false, error: chrome.runtime.lastError.message })
+        else sendResponse({ ok: true })
+      })
     })
     return true // keep the message channel open for the async sendResponse
   }

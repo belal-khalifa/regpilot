@@ -33,10 +33,12 @@ export default function MontajiFillPanel({
   const [queued, setQueued] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [sentFiles, setSentFiles] = useState(0)
+  const [failure, setFailure] = useState<string | null>(null)
 
   async function handleFill() {
     setQueuing(true)
     setNotice(null)
+    setFailure(null)
 
     const files: QueuedFile[] = []
     const left: string[] = []
@@ -58,9 +60,10 @@ export default function MontajiFillPanel({
       })
     }
 
-    const ok = await requestMontajiFill(productName, data, files)
+    const result = await requestMontajiFill(productName, data, files)
     setQueuing(false)
-    setQueued(ok)
+    setQueued(result.ok)
+    setFailure(result.ok ? null : (result.error ?? 'The extension did not accept the data.'))
     setSentFiles(files.length)
     if (left.length) {
       setNotice(`Not sent to the extension (too large or unreadable): ${left.join(', ')}`)
@@ -83,13 +86,22 @@ export default function MontajiFillPanel({
           </p>
         </>
       ) : queued ? (
-        <p className="font-text text-[14px] leading-[1.47] text-status-approved">
-          Queued. Open Montaji in another tab — a RegPilot panel will appear with a "Fill this
-          step" button for each step of the wizard. Nothing submits automatically; you review and
-          click Next and Submit yourself on Montaji.
-          {sentFiles > 0 &&
-            ` ${sentFiles} document${sentFiles === 1 ? ' is' : 's are'} ready too: the panel will ask you to confirm before uploading any of them.`}
-        </p>
+        <div className="flex flex-col gap-2">
+          <p role="status" className="font-text text-[14px] leading-[1.47] text-status-approved">
+            ✓ Sent to the extension. Open Montaji in another tab: a RegPilot panel will appear with a
+            "Fill this step" button for each step of the wizard. Nothing submits automatically; you
+            review and click Next and Submit yourself on Montaji.
+            {sentFiles > 0 &&
+              ` ${sentFiles} document${sentFiles === 1 ? ' is' : 's are'} ready too: the panel will ask you to confirm before uploading any of them.`}
+          </p>
+          <button
+            type="button"
+            onClick={() => setQueued(false)}
+            className="self-start font-text text-[13px] text-primary"
+          >
+            Send again (for example after pressing Clear on Montaji)
+          </button>
+        </div>
       ) : (
         <>
           <p className="font-text text-[14px] leading-[1.47] text-ink-muted-80">
@@ -104,8 +116,13 @@ export default function MontajiFillPanel({
             disabled={queuing}
             className="self-start rounded-full bg-primary px-[18px] py-[10px] font-text text-[15px] text-on-primary active:scale-95 transition-transform disabled:opacity-60"
           >
-            {queuing ? 'Sending…' : 'Send to extension'}
+            {queuing ? 'Sending…' : failure ? 'Try again' : 'Send to extension'}
           </button>
+          {failure && (
+            <p role="alert" className="font-text text-[14px] leading-[1.47] text-status-rejected">
+              Could not send to the extension. {failure}
+            </p>
+          )}
         </>
       )}
       {notice && <p className="font-text text-[13px] text-status-rejected">{notice}</p>}

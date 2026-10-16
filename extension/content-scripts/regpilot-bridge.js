@@ -16,11 +16,25 @@ function announceReady() {
 announceReady()
 
 window.addEventListener('regpilot:fill-request', (event) => {
+  const reply = (detail) => window.dispatchEvent(new CustomEvent('regpilot:fill-queued', { detail }))
   const payload = event.detail
-  chrome.runtime.sendMessage({ type: 'STORE_FILL_DATA', payload }, (response) => {
-    const ok = Boolean(response && response.ok)
-    window.dispatchEvent(
-      new CustomEvent('regpilot:fill-queued', { detail: { ok } }),
-    )
-  })
+
+  // After the extension is reloaded, an already-open page keeps a dead copy of this script.
+  if (!chrome.runtime || !chrome.runtime.id) {
+    reply({ ok: false, error: 'The extension was reloaded after this page opened. Refresh this page and try again.' })
+    return
+  }
+  try {
+    chrome.runtime.sendMessage({ type: 'STORE_FILL_DATA', payload }, (response) => {
+      if (chrome.runtime.lastError) {
+        reply({ ok: false, error: chrome.runtime.lastError.message })
+      } else if (!response || !response.ok) {
+        reply({ ok: false, error: (response && response.error) || 'The extension did not accept the data.' })
+      } else {
+        reply({ ok: true })
+      }
+    })
+  } catch (err) {
+    reply({ ok: false, error: String(err && err.message ? err.message : err) })
+  }
 })

@@ -675,6 +675,13 @@
           max-height: 78vh; overflow: auto; background: #1d1d1f; color: #fff; border-radius: 18px;
           padding: 18px; font-family: -apple-system, system-ui, sans-serif;
           box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+        .head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 4px; }
+        .head .eyebrow { margin: 0; }
+        .min { background: transparent; color: #cccccc; border: 1px solid #444; padding: 0;
+          width: 26px; height: 26px; line-height: 24px; font-size: 16px; }
+        .card.collapsed { width: auto; padding: 10px 12px 10px 16px; cursor: pointer; }
+        .card.collapsed .head { margin: 0; gap: 14px; }
+        .card.collapsed > :not(.head) { display: none; }
         .eyebrow { font-size: 12px; font-weight: 600; color: #2997ff; margin: 0 0 4px;
           text-transform: uppercase; letter-spacing: .02em; }
         .title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
@@ -709,8 +716,11 @@
     const docsBox = el('div', { className: 'docs' })
     docsBox.style.display = 'none'
 
+    const minBtn = el('button', { className: 'min', textContent: '\u2013', title: 'Minimize' })
+    minBtn.setAttribute('aria-label', 'Minimize the RegPilot panel')
+    const head = el('div', { className: 'head' }, [el('p', { className: 'eyebrow', textContent: 'RegPilot' }), minBtn])
     const card = el('div', { className: 'card' }, [
-      el('p', { className: 'eyebrow', textContent: 'RegPilot' }),
+      head,
       el('p', { className: 'title', textContent: `${pending.productName || 'Product'} is ready to fill` }),
       stepLine,
       statusLine,
@@ -719,6 +729,20 @@
       results,
     ])
     shadow.append(style, card)
+
+    // Minimize keeps the panel (and any running fill) alive; it only hides the body.
+    const setCollapsed = (collapsed) => {
+      card.classList.toggle('collapsed', collapsed)
+      minBtn.textContent = collapsed ? '+' : '\u2013'
+      minBtn.title = collapsed ? 'Open' : 'Minimize'
+    }
+    minBtn.addEventListener('click', (event) => {
+      event.stopPropagation()
+      setCollapsed(!card.classList.contains('collapsed'))
+    })
+    card.addEventListener('click', () => {
+      if (card.classList.contains('collapsed')) setCollapsed(false)
+    })
 
     fillBtn.addEventListener('click', onFillClicked)
     clearBtn.addEventListener('click', () => {
