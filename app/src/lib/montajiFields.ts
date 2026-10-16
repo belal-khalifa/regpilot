@@ -78,6 +78,7 @@ type ReadinessInput = {
   certificate_product_match?: 'yes' | 'no' | 'not_applicable' | 'no_certificate'
   certificate_matched_text?: string
   certificate_products_listed?: string[]
+  document_mismatches?: Array<{ file_name: string; product_named: string }>
   brand_name?: string
   country_of_origin?: string
   montaji_group?: string
@@ -136,12 +137,26 @@ export function certificateWarning(data: ReadinessInput): string | null {
   }
 }
 
+// Documents the AI found to be about a different product than the label (for example a composition
+// certificate for another product), plus the Free Sale check. Shown before anything is sent.
+export function documentWarnings(data: ReadinessInput): string[] {
+  const warnings: string[] = []
+  const certificate = certificateWarning(data)
+  if (certificate) warnings.push(certificate)
+  const name = (data.product_name ?? '').trim() || 'this product'
+  for (const m of data.document_mismatches ?? []) {
+    warnings.push(
+      `"${m.file_name}" seems to be about "${m.product_named}", not "${name}". Its contents were not used. Upload the right document and re-run extraction.`,
+    )
+  }
+  return warnings
+}
+
 // What Montaji will refuse or stop on if it is still missing when the extension fills the form.
 // These are reminders for the person reviewing, not blockers: they can still save and fix on Montaji.
 export function montajiReadinessIssues(data: ReadinessInput): string[] {
   const issues: string[] = []
-  const certificateIssue = certificateWarning(data)
-  if (certificateIssue) issues.push(certificateIssue)
+  issues.push(...documentWarnings(data))
   if (!data.product_name) issues.push('Product name is missing.')
   if (!data.brand_name) issues.push('Brand name is missing.')
   if (!data.country_of_origin) issues.push('Country of origin is missing.')

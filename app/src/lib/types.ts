@@ -81,6 +81,8 @@ export type ExtractedProductData = {
   certificate_product_match?: 'yes' | 'no' | 'not_applicable' | 'no_certificate'
   certificate_matched_text?: string
   certificate_products_listed?: string[]
+  // Documents (formula, composition, analysis...) that are about a different product than the label.
+  document_mismatches?: Array<{ file_name: string; product_named: string }>
   variants?: ExtractedVariant[]
   shelf_life?: string
   shelf_life_period_type?: string

@@ -95,6 +95,7 @@ export default function ExtractionReviewForm({
       certificate_product_match: initialData.certificate_product_match,
       certificate_matched_text: initialData.certificate_matched_text,
       certificate_products_listed: initialData.certificate_products_listed,
+      document_mismatches: initialData.document_mismatches,
       label_claims: labelClaims
         .split(',')
         .map((c) => c.trim())

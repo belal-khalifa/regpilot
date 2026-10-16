@@ -67,6 +67,9 @@ Each document is introduced by a line saying how the uploader labelled it. If on
 - certificate_matched_text: when the answer is "yes", the line from the certificate that names the product, copied as written.
 - certificate_products_listed: up to 5 product names the certificate lists (the first ones if there are more).
 
+DOCUMENT MISMATCH CHECK
+The product is the one on the label artwork. For every OTHER document that names a product (a formula, a certificate of composition, a certificate of analysis, a specification sheet), compare the product it names with the label's product. If a document is clearly about a DIFFERENT product (different product type or name, for example a body scrub when the label is a fragrance mist), add it to document_mismatches with its file name and the product it names. Different wording for the same product does not count. Do not list Certificates of Free Sale (checked separately), GMP certificates, or documents that name no product. Never take ingredients or percentages from a document listed in document_mismatches.
+
 MONTAJI CLASSIFICATION
 Choose montaji_group, montaji_category and montaji_sub_category from EXACTLY these valid combinations (group, then its categories):
 ${TAXONOMY_FOR_PROMPT}
@@ -105,6 +108,14 @@ export const EXTRACTION_SCHEMA = {
     },
     certificate_matched_text: { type: 'STRING' },
     certificate_products_listed: { type: 'ARRAY', items: { type: 'STRING' } },
+    document_mismatches: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: { file_name: { type: 'STRING' }, product_named: { type: 'STRING' } },
+        required: ['file_name', 'product_named'],
+      },
+    },
     variants: {
       type: 'ARRAY',
       items: {
