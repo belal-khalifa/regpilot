@@ -225,26 +225,40 @@ const extractHandler: Handler = async (event) => {
   const startedAt = Date.now()
   const errors: string[] = []
 
-  // One request to one model. Resolves with the parsed reply or rejects with a readable reason.
+  // One model, asked until it answers or the deadline passes. Resolves with the parsed reply or
+  // rejects with a readable reason.
   async function askModel(model: string, signal: AbortSignal): Promise<Record<string, unknown>> {
-    for (const withThinkingOff of [true, false]) {
+    let thinkingOff = true
+    let lastReason = `${model}: no answer`
+    while (!signal.aborted) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: buildBody(withThinkingOff), signal },
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: buildBody(thinkingOff), signal },
       )
       if (res.ok) return (await res.json()) as Record<string, unknown>
       const text = (await res.text()).slice(0, 300)
-      // Some models refuse a thinking setting; ask again without it.
-      if (res.status === 400 && withThinkingOff && /think/i.test(text)) continue
-      throw new Error(`${model} ${res.status}: ${text}`)
+      lastReason = `${model} ${res.status}: ${text}`
+      errors.push(lastReason)
+      console.error('Gemini attempt failed', lastReason)
+      // Some models reject the "no thinking" setting with a vague 400; ask again without it.
+      if (res.status === 400 && thinkingOff) {
+        thinkingOff = false
+        continue
+      }
+      // Overloaded or rate limited: wait a moment and ask the same model again.
+      if (res.status === 429 || res.status >= 500) {
+        await new Promise((r) => setTimeout(r, 1500))
+        continue
+      }
+      throw new Error(lastReason)
     }
-    throw new Error(`${model}: no usable answer`)
+    throw new Error(`${lastReason} (ran out of time)`)
   }
 
   // Both models are asked at once and the first good answer wins: the lighter one usually answers
   // well inside the time limit even when the stronger one is slow or overloaded.
   let geminiJson: Record<string, unknown> | null = null
-  for (let round = 0; round < 2 && !geminiJson; round++) {
+  for (let round = 0; round < 1 && !geminiJson; round++) {
     const remaining = HARD_LIMIT_MS - (Date.now() - startedAt)
     if (remaining < 6000) break
     const controller = new AbortController()
@@ -253,9 +267,7 @@ const extractHandler: Handler = async (event) => {
       geminiJson = await Promise.any(
         GEMINI_MODELS.map((model) =>
           askModel(model, controller.signal).catch((err) => {
-            const reason = err instanceof Error ? (err.name === 'AbortError' ? `${model} timed out` : err.message) : String(err)
-            errors.push(reason)
-            console.error('Gemini attempt failed', reason)
+            if (err instanceof Error && err.name === 'AbortError') errors.push(`${model} timed out`)
             throw err
           }),
         ),
