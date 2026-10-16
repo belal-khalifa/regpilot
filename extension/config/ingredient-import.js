@@ -67,7 +67,8 @@
     c.setAttribute('r', ref)
     c.setAttribute('s', String(style))
     const v = doc.createElementNS(MAIN_NS, 'v')
-    v.textContent = String(n)
+    // Written out in full: String(1e-7) would give "1e-7", which spreadsheets and importers read badly.
+    v.textContent = Number.isInteger(n) ? String(n) : n.toFixed(10).replace(/0+$/, '').replace(/\.$/, '')
     c.appendChild(v)
     return c
   }
@@ -132,8 +133,10 @@
         stringCell(doc, strings, `B${n}`, 1, String(ingredient.inci_name).trim()),
       ]
       stringsUsed += 2
+      // Style 0 is the plain "General" format. The template's own percentage style (5) is formatted
+      // "0.00", which made small values such as 0.001 show up as 0.00 and be imported as 0.
       const pct = numberFrom(ingredient.percentage)
-      if (pct !== null) cells.push(numberCell(doc, `C${n}`, 5, pct))
+      if (pct !== null) cells.push(numberCell(doc, `C${n}`, 0, pct))
 
       // Cells must stay in column order; the template's own cell in this row is column Z.
       for (const old of Array.from(row.childNodes)) {
