@@ -56,6 +56,69 @@
 
   const info = (report, label, detail) => report.push({ label, status: 'info', detail })
 
+  // --- Montaji's message boxes ("import finished", "barcode already used", ...) --------------
+
+  // Montaji answers many actions with a small message box that has only an OK/Close button. While a
+  // fill is running, those are read, reported, and acknowledged so they cannot block the next step.
+  // Anything with a real choice (Yes/No, Proceed/Cancel, Delete, a form) is never touched.
+  const ACK_WORDS = new Set(['ok', 'okay', 'close', 'dismiss', 'got it', 'done'])
+  const PROBLEM_WORDS =
+    /already|invalid|error|fail|not (valid|allowed|found|unique)|cannot|can't|unable|must |required|duplicate|exist|used by|rejected/i
+  let messageProblems = 0 // how many problem messages have appeared during this run
+  let watcher = null
+
+  function findMessageDialog() {
+    const host = document.getElementById(HOST_ID)
+    const boxes = document.querySelectorAll(
+      '.mx-dialog, .modal-dialog, [role="dialog"], [role="alertdialog"], .mx-window-active',
+    )
+    for (const box of boxes) {
+      if (!E.isVisible(box) || (host && host.contains(box))) continue
+      if (box.querySelector('input:not([type="hidden"]), select, textarea')) continue
+      const buttons = Array.from(box.querySelectorAll('button')).filter(E.isVisible)
+      const labels = buttons.map((b) => E.normalize(b.textContent)).filter((l) => l && l !== '\u00d7' && l !== 'x')
+      const ack = buttons.find((b) => ACK_WORDS.has(E.normalize(b.textContent)))
+      if (!ack || labels.some((l) => !ACK_WORDS.has(l))) continue
+      const text = (box.innerText || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line && !ACK_WORDS.has(line.toLowerCase()) && line !== '\u00d7')
+        .join(' ')
+        .slice(0, 300)
+      if (!text) continue
+      const problem = /mx-dialog-(error|warning)|alert-danger|text-danger/i.test(box.outerHTML.slice(0, 600)) || PROBLEM_WORDS.test(text)
+      return { ack, text, problem }
+    }
+    return null
+  }
+
+  function startMessageWatcher(report) {
+    stopMessageWatcher()
+    messageProblems = 0
+    let last = { text: '', at: 0 }
+    watcher = setInterval(() => {
+      const message = findMessageDialog()
+      if (!message) return
+      const now = Date.now()
+      const repeat = message.text === last.text && now - last.at < 3000
+      last = { text: message.text, at: now }
+      if (!repeat) {
+        if (message.problem) messageProblems++
+        report.push({
+          label: message.problem ? 'Montaji reported a problem' : 'Montaji message',
+          status: message.problem ? 'manual' : 'info',
+          detail: message.text,
+        })
+      }
+      message.ack.click()
+    }, 250)
+  }
+
+  function stopMessageWatcher() {
+    if (watcher) clearInterval(watcher)
+    watcher = null
+  }
+
   // --- Step 2: product base -----------------------------------------------------------------
 
   async function fillProductBase(data, report) {
@@ -374,7 +437,17 @@
     // Montaji's own per-variant check. It only validates and saves; it does not submit anything.
     ui.setStatus(`${prefix}saving and validating...`)
     if (E.clickButton('Save and Validate')) {
+      const problemsBefore = messageProblems
       await E.sleep(2500)
+      await E.sleep(1200) // a message box (for example "barcode already used") can arrive a little later
+      if (messageProblems > problemsBefore) {
+        report.push({
+          label: `${prefix}Montaji validation`,
+          status: 'manual',
+          detail: 'did not pass - see the Montaji message above and fix it on the page',
+        })
+        return
+      }
       const problems = Array.from(document.querySelectorAll('.mx-validation-message'))
         .filter(E.isVisible)
         .map((el) => el.textContent.trim())
@@ -604,6 +677,7 @@
     ui.setBusy(true)
     const report = []
     ui.showResults(report)
+    startMessageWatcher(report)
     try {
       for (let i = 0; i < plan.length; i++) {
         ui.setStatus(`Uploading file ${i + 1} of ${plan.length}...`)
@@ -616,6 +690,7 @@
       ui.showResults(report.slice())
       ui.setStatus('Stopped because of an error.')
     } finally {
+      stopMessageWatcher()
       running = false
       ui.setBusy(false)
     }
@@ -635,8 +710,7 @@
     return `Made in ${country}: Montaji needs ${kind}. ${how}${number}`
   }
 
-  async function runStep(step, data) {
-    const report = []
+  async function runStep(step, data, report) {
     if (step === 'general') {
       info(report, 'Company', 'Choose your company yourself, then click Next. RegPilot does not pick it for you.')
     } else if (step === 'productBase') {
@@ -671,13 +745,21 @@
     try {
       const step = detectStep()
       ui.setStatus(`Filling ${STEP_LABELS[step]}...`)
-      const report = await runStep(step, pending.data || {})
+      const report = []
+      startMessageWatcher(report)
+      await runStep(step, pending.data || {}, report)
+      await E.sleep(600) // let a message that appeared at the very end be read
       ui.showResults(report)
-      ui.setStatus('Done. Check the items below, then continue yourself.')
+      ui.setStatus(
+        messageProblems > 0
+          ? 'Done, but Montaji reported a problem. Read the items below.'
+          : 'Done. Check the items below, then continue yourself.',
+      )
     } catch (err) {
       ui.showResults([{ label: 'Stopped', status: 'manual', detail: String(err && err.message ? err.message : err) }])
       ui.setStatus('Stopped because of an error.')
     } finally {
+      stopMessageWatcher()
       running = false
       ui.setBusy(false)
     }
