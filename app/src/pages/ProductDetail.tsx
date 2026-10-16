@@ -71,14 +71,27 @@ export default function ProductDetail() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ productId: id }),
       })
-      const body = await res.json()
-      if (!res.ok) {
-        setExtractError(body.error || 'Extraction failed.')
-      } else {
-        loadProduct()
+      const text = await res.text()
+      let body: { error?: string } = {}
+      try {
+        body = JSON.parse(text)
+      } catch {
+        // not JSON: a gateway or timeout page
       }
-    } catch {
-      setExtractError('Could not reach the extraction service.')
+      if (!res.ok) {
+        setExtractError(
+          body.error ||
+            `The extraction service answered with an error (HTTP ${res.status}). ${text.replace(/<[^>]*>/g, ' ').trim().slice(0, 160)}`,
+        )
+      } else if (!body.error) {
+        loadProduct()
+      } else {
+        setExtractError(body.error)
+      }
+    } catch (err) {
+      setExtractError(
+        `Could not reach the extraction service (${err instanceof Error ? err.message : 'network error'}).`,
+      )
     }
     setExtracting(false)
   }

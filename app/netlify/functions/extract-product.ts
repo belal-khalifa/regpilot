@@ -19,7 +19,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY as string
 // verified to extract shades, barcodes and classification correctly.
 const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest']
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
-const TIME_BUDGET_MS = 22_000
+const TIME_BUDGET_MS = 20_000
+const HARD_LIMIT_MS = 24_000
 
 const TAXONOMY_FOR_PROMPT = Object.entries(MONTAJI_TAXONOMY)
   .map(([group, cats]) => {
@@ -133,7 +134,7 @@ export function postProcess(raw: Record<string, unknown>): Record<string, unknow
   return data
 }
 
-export const handler: Handler = async (event) => {
+const extractHandler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) }
   }
@@ -225,15 +226,31 @@ export const handler: Handler = async (event) => {
   outer: for (const model of GEMINI_MODELS) {
     for (let attempt = 0; attempt < 2; attempt++) {
       if (Date.now() - startedAt > TIME_BUDGET_MS) break outer
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: requestBody },
-      )
+      let res: Response
+      try {
+        res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: requestBody,
+            // Netlify cuts a function off around 26s with an unreadable gateway page, so each
+            // attempt gets a deadline that leaves time to try the lighter model or to answer.
+            signal: AbortSignal.timeout(Math.max(4000, Math.min(15000, HARD_LIMIT_MS - (Date.now() - startedAt)))),
+          },
+        )
+      } catch (err) {
+        lastError = `${model} network error: ${err instanceof Error ? err.message : String(err)}`
+        console.error('Gemini request failed', lastError)
+        await new Promise((r) => setTimeout(r, 1200))
+        continue
+      }
       if (res.ok) {
         geminiRes = res
         break outer
       }
       lastError = `${model} ${res.status}: ${(await res.text()).slice(0, 300)}`
+      console.error('Gemini error', lastError)
       if (!RETRYABLE_STATUS.has(res.status)) break
       await new Promise((r) => setTimeout(r, 1200))
     }
@@ -271,4 +288,20 @@ export const handler: Handler = async (event) => {
   }
 
   return { statusCode: 200, body: JSON.stringify({ extracted_data: extracted }) }
+}
+
+// Anything unexpected becomes a readable JSON error instead of a bare gateway failure.
+export const handler: Handler = async (event, context) => {
+  try {
+    const result = await extractHandler(event, context)
+    return result ?? { statusCode: 500, body: JSON.stringify({ error: 'Empty response from the extraction function' }) }
+  } catch (err) {
+    console.error('extract-product crashed', err)
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: `Extraction crashed: ${err instanceof Error ? err.message : String(err)}`,
+      }),
+    }
+  }
 }
