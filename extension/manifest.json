@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RegPilot for Montaji",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Fills your reviewed RegPilot product data into the Montaji cosmetics registration form. You stay logged into Montaji yourself and click Submit \u2014 RegPilot never sees your Montaji password.",
   "icons": {
     "16": "icons/icon16.png",
@@ -27,6 +27,7 @@
     {
       "matches": [
         "https://regpilot-app.netlify.app/*",
+        "https://regpilot-app.pages.dev/*",
         "http://localhost:5173/*"
       ],
       "js": [
