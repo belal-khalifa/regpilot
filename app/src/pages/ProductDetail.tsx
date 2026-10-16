@@ -16,6 +16,11 @@ const DOC_TYPES: DocumentType[] = [
   'label_artwork',
 ]
 
+// Where extraction runs. Set VITE_EXTRACT_FUNCTION_URL to the Supabase function address to use it;
+// without it the Netlify function is used.
+const EXTRACT_URL = import.meta.env.VITE_EXTRACT_FUNCTION_URL || '/.netlify/functions/extract-product'
+const PUBLIC_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
+
 const FILLABLE_STATUSES: ProductStatus[] = ['ready_to_fill', 'submitted', 'approved', 'rejected']
 
 export default function ProductDetail() {
@@ -67,9 +72,13 @@ export default function ProductDetail() {
       return
     }
     try {
-      const res = await fetch('/.netlify/functions/extract-product', {
+      const res = await fetch(EXTRACT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: PUBLIC_KEY,
+        },
         body: JSON.stringify({ productId: id }),
       })
       const text = await res.text()
