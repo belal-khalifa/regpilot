@@ -366,11 +366,15 @@
     return Array.from(grid.querySelectorAll('tbody tr')).filter(E.isVisible)
   }
 
+  // The first cell (the request number) ignores clicks; selecting a row works from the product name
+  // cell, so click a later cell and fall back to the others.
   function clickRow(row) {
-    const cell = row.querySelector('td') || row
-    cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
-    cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }))
-    cell.click()
+    const cells = Array.from(row.querySelectorAll('td'))
+    const cell = cells[2] || cells[1] || cells[0] || row
+    const opts = { bubbles: true, cancelable: true, view: window }
+    cell.dispatchEvent(new MouseEvent('mousedown', opts))
+    cell.dispatchEvent(new MouseEvent('mouseup', opts))
+    cell.dispatchEvent(new MouseEvent('click', opts))
   }
 
   // The grid's columns are: request number, barcode, name, ... so an empty second cell is a variant
