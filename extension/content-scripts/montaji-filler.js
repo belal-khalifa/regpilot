@@ -356,50 +356,75 @@
     }
   }
 
-  // Adding a variant creates a new row in the variants grid, but the form below stays bound to the
-  // row that was selected before. The new (last) row has to be clicked for its blank form to load.
-  async function selectLastVariantRow() {
-    const grid = (E.findButton('Add New Variant') || {}).closest ? E.findButton('Add New Variant').closest('.mx-grid') : null
-    if (!grid) return false
-    const rows = Array.from(grid.querySelectorAll('tbody tr')).filter(E.isVisible)
-    const last = rows[rows.length - 1]
-    if (!last) return false
-    const cell = last.querySelector('td') || last
+  // Montaji creates one empty variant row by itself when the product base is saved, and the
+  // variant form only exists while a row is selected. Adding a variant creates another row, but the
+  // form stays bound to whichever row was selected before, so the row to fill must be clicked.
+  function variantRows() {
+    const button = E.findButton('Add New Variant')
+    const grid = button && button.closest ? button.closest('.mx-grid') : null
+    if (!grid) return []
+    return Array.from(grid.querySelectorAll('tbody tr')).filter(E.isVisible)
+  }
+
+  function clickRow(row) {
+    const cell = row.querySelector('td') || row
     cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
     cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }))
     cell.click()
+  }
+
+  // The grid's columns are: request number, barcode, name, ... so an empty second cell is a variant
+  // nobody has filled yet.
+  const rowIsBlank = (row) => {
+    const cells = row.querySelectorAll('td')
+    return cells.length > 1 && !cells[1].textContent.trim()
+  }
+
+  async function selectBlankRow() {
+    const row = variantRows().find(rowIsBlank)
+    if (!row) return false
+    clickRow(row)
     return true
   }
 
+  async function selectLastVariantRow() {
+    const rows = variantRows()
+    const last = rows[rows.length - 1]
+    if (!last) return false
+    clickRow(last)
+    return true
+  }
+
+  const blankVariantForm = () => {
+    const el = E.findInput(F.variant.page, F.variant.barcode)
+    return el && !el.value.trim() ? el : null
+  }
+
   async function fillVariants(data, report) {
-    const V = F.variant
     const variants = data.variants && data.variants.length ? data.variants : [{}]
 
     for (let i = 0; i < variants.length; i++) {
       ui.setStatus(`Variant ${i + 1} of ${variants.length}...`)
 
-      const form = E.findInput(V.page, V.barcode)
-      const formIsBlank = form && !form.value.trim()
-      if (!(i === 0 && formIsBlank)) {
-        if (!E.clickButton('Add New Variant')) {
-          info(report, `Variant ${i + 1}`, 'Could not find the "Add New Variant" button.')
-          return
+      if (!blankVariantForm()) {
+        // 1) an empty row Montaji already made; 2) otherwise a brand new variant.
+        let opened = await selectBlankRow()
+        if (!opened) {
+          if (!E.clickButton('Add New Variant')) {
+            info(report, `Variant ${i + 1}`, 'Could not find the "Add New Variant" button.')
+            return
+          }
+          await E.sleep(2000)
+          opened = await selectLastVariantRow()
+          if (!opened) {
+            info(report, `Variant ${i + 1}`, 'Added, but could not select its row in the variants list.')
+            return
+          }
         }
-        await E.sleep(2000)
-        if (!(await selectLastVariantRow())) {
-          info(report, `Variant ${i + 1}`, 'Added, but could not select its row in the variants list.')
-          return
-        }
-        // Wait for the blank form of the newly selected row; never write over another variant.
-        const blank = await E.waitFor(
-          () => {
-            const el = E.findInput(V.page, V.barcode)
-            return el && !el.value.trim() ? el : null
-          },
-          { timeout: 10000 },
-        )
+        // Wait for the blank form of the selected row; never write over another variant.
+        const blank = await E.waitFor(blankVariantForm, { timeout: 10000 })
         if (!blank) {
-          info(report, `Variant ${i + 1}`, 'The form still shows the previous variant - stopped to avoid overwriting it.')
+          info(report, `Variant ${i + 1}`, 'The form did not open as a blank variant - stopped to avoid overwriting one that has data.')
           return
         }
       }
