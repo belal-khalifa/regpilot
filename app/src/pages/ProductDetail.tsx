@@ -106,6 +106,8 @@ export default function ProductDetail() {
       updated_at: new Date().toISOString(),
     }
     if (options.markReady) update.status = 'ready_to_fill'
+    // The dashboard lists the product by this name, so it follows what the reviewer confirmed.
+    if (data.product_name?.trim()) update.name = data.product_name.trim()
 
     const { error } = await supabase.from('products').update(update).eq('id', id)
     if (error) return { error: error.message }
@@ -148,6 +150,13 @@ export default function ProductDetail() {
               </div>
               {statusError && (
                 <p className="font-text text-[13px] text-status-rejected">{statusError}</p>
+              )}
+
+              {product.status === 'draft' && (
+                <p className="font-text text-[14px] leading-[1.47] text-ink-muted-80">
+                  Upload the documents below, then press Extract with AI. The product name and
+                  brand are read from the documents.
+                </p>
               )}
 
               <div className="flex flex-col gap-4">

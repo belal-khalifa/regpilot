@@ -75,6 +75,9 @@ export function validateClassification(input: Classification): Classification {
 
 type ReadinessInput = {
   product_name?: string
+  certificate_product_match?: 'yes' | 'no' | 'not_applicable' | 'no_certificate'
+  certificate_matched_text?: string
+  certificate_products_listed?: string[]
   brand_name?: string
   country_of_origin?: string
   montaji_group?: string
@@ -94,10 +97,51 @@ type ReadinessInput = {
   has_period_after_opening?: boolean
 }
 
+const isUaeCountry = (c: string | undefined) => /^(uae|u\.a\.e\.?|united arab emirates)$/i.test((c ?? '').trim())
+
+const nameTokens = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 1 && t !== 'and')
+
+// Warns when the Certificate of Free Sale does not seem to cover this product. The AI judges the
+// match on extraction (a close match counts); if the person has since renamed the product, the
+// quoted certificate line is compared again so a rename cannot hide a mismatch.
+export function certificateWarning(data: ReadinessInput): string | null {
+  if (isUaeCountry(data.country_of_origin)) return null // UAE products need a GMP certificate instead
+  const name = (data.product_name ?? '').trim()
+  switch (data.certificate_product_match) {
+    case 'no_certificate':
+      return 'No Certificate of Free Sale was found among the uploaded documents.'
+    case 'no': {
+      const listed = (data.certificate_products_listed ?? []).filter(Boolean)
+      return `The Certificate of Free Sale does not seem to list "${name || 'this product'}"${
+        listed.length ? ` (it lists: ${listed.join('; ')})` : ''
+      }. Check that it is the right certificate before sending.`
+    }
+    case 'yes': {
+      const matched = data.certificate_matched_text ?? ''
+      const wanted = nameTokens(name)
+      if (!matched || wanted.length === 0) return null
+      const have = new Set(nameTokens(matched))
+      const share = wanted.filter((t) => have.has(t)).length / wanted.length
+      return share >= 0.5
+        ? null
+        : `The product name was changed after extraction and no longer matches the Certificate of Free Sale line "${matched}". Check it.`
+    }
+    default:
+      return null
+  }
+}
+
 // What Montaji will refuse or stop on if it is still missing when the extension fills the form.
 // These are reminders for the person reviewing, not blockers: they can still save and fix on Montaji.
 export function montajiReadinessIssues(data: ReadinessInput): string[] {
   const issues: string[] = []
+  const certificateIssue = certificateWarning(data)
+  if (certificateIssue) issues.push(certificateIssue)
   if (!data.product_name) issues.push('Product name is missing.')
   if (!data.brand_name) issues.push('Brand name is missing.')
   if (!data.country_of_origin) issues.push('Country of origin is missing.')

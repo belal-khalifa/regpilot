@@ -92,6 +92,9 @@ export default function ExtractionReviewForm({
       manufacturer_address: manufacturerAddress.trim() || undefined,
       certificate_number: certificateNumber.trim() || undefined,
       certificate_issuing_country: certificateCountry.trim() || undefined,
+      certificate_product_match: initialData.certificate_product_match,
+      certificate_matched_text: initialData.certificate_matched_text,
+      certificate_products_listed: initialData.certificate_products_listed,
       label_claims: labelClaims
         .split(',')
         .map((c) => c.trim())

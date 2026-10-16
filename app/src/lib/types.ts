@@ -10,6 +10,8 @@ export type Product = {
   id: string
   company_id: string
   name: string
+  // Internal RegPilot number, counted per company (1, 2, 3 ...).
+  seq_no: number | null
   status: ProductStatus
   extracted_data: Record<string, unknown>
   created_by: string
@@ -75,6 +77,10 @@ export type ExtractedProductData = {
   certificate_number?: string
   certificate_issuing_country?: string
   label_claims?: string[]
+  // Whether the Certificate of Free Sale names this product (a close match counts).
+  certificate_product_match?: 'yes' | 'no' | 'not_applicable' | 'no_certificate'
+  certificate_matched_text?: string
+  certificate_products_listed?: string[]
   variants?: ExtractedVariant[]
   shelf_life?: string
   shelf_life_period_type?: string

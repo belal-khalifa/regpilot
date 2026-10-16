@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import GlobalNav from '../components/GlobalNav'
 import StatusBadge from '../components/StatusBadge'
 import CreateCompanyForm from '../components/CreateCompanyForm'
@@ -9,75 +9,7 @@ import { useCompanies } from '../lib/useCompanies'
 import { useProducts } from '../lib/useProducts'
 
 const SELECTED_COMPANY_KEY = 'regpilot:selectedCompanyId'
-
-function NewProductForm({
-  companyId,
-  onCreated,
-  onCancel,
-}: {
-  companyId: string
-  onCreated: (productId: string) => void
-  onCancel: () => void
-}) {
-  const { user } = useAuth()
-  const [name, setName] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!user || !name.trim()) return
-    setSubmitting(true)
-    setError(null)
-    const { data, error } = await supabase
-      .from('products')
-      .insert({ company_id: companyId, name: name.trim(), created_by: user.id })
-      .select('id')
-      .single()
-    if (error) {
-      setError(error.message)
-      setSubmitting(false)
-      return
-    }
-    onCreated(data.id)
-  }
-
-  return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col gap-3 rounded-lg border border-hairline bg-canvas-parchment p-5 sm:flex-row sm:items-center"
-    >
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Product name"
-        autoFocus
-        className="flex-1 rounded-full border border-hairline bg-canvas px-5 py-3 font-text text-[15px] text-ink outline-none focus:border-primary"
-        required
-      />
-      <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={submitting || !name.trim()}
-          className="rounded-full bg-primary px-[18px] py-[10px] font-text text-[15px] text-on-primary active:scale-95 transition-transform disabled:opacity-60"
-        >
-          {submitting ? 'Adding…' : 'Add product'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-full border border-hairline px-[18px] py-[10px] font-text text-[15px] text-ink-muted-80 active:scale-95 transition-transform"
-        >
-          Cancel
-        </button>
-      </div>
-      {error && (
-        <p className="font-text text-[13px] text-status-rejected sm:basis-full">{error}</p>
-      )}
-    </form>
-  )
-}
+const NEW_PRODUCT_NAME = 'New product'
 
 export default function AppHome() {
   const navigate = useNavigate()
@@ -85,7 +17,8 @@ export default function AppHome() {
   const { companies, loading: companiesLoading, refresh: refreshCompanies } = useCompanies()
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [addingCompany, setAddingCompany] = useState(false)
-  const [addingProduct, setAddingProduct] = useState(false)
+  const [creatingProduct, setCreatingProduct] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   useEffect(() => {
     if (companies.length === 0) return
@@ -119,6 +52,26 @@ export default function AppHome() {
     const { error } = await deleteProduct(product)
     setDeletingId(null)
     if (error) window.alert(error)
+  }
+
+  // A new product starts as an empty shell: the documents are uploaded next, and the AI reads the
+  // product's name and brand out of them.
+  async function handleNewProduct(companyId: string) {
+    if (!user) return
+    setCreatingProduct(true)
+    setCreateError(null)
+    const { data, error } = await supabase
+      .from('products')
+      .insert({ company_id: companyId, name: NEW_PRODUCT_NAME, created_by: user.id })
+      .select('id')
+      .single()
+    setCreatingProduct(false)
+    if (error) {
+      setCreateError(error.message)
+      return
+    }
+    refreshProducts()
+    navigate(`/app/products/${data.id}`)
   }
 
   if (!authLoading && !session) {
@@ -215,27 +168,18 @@ export default function AppHome() {
               <h2 className="font-display text-[21px] font-semibold tracking-[0.231px] text-ink">
                 Products
               </h2>
-              {!addingProduct && (
-                <button
-                  type="button"
-                  onClick={() => setAddingProduct(true)}
-                  className="rounded-full bg-primary px-[18px] py-[10px] font-text text-[15px] text-on-primary active:scale-95 transition-transform"
-                >
-                  + New product
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => handleNewProduct(selectedCompany.id)}
+                disabled={creatingProduct}
+                className="rounded-full bg-primary px-[18px] py-[10px] font-text text-[15px] text-on-primary active:scale-95 transition-transform disabled:opacity-60"
+              >
+                {creatingProduct ? 'Creating…' : '+ New product'}
+              </button>
             </div>
 
-            {addingProduct && (
-              <NewProductForm
-                companyId={selectedCompany.id}
-                onCreated={(productId) => {
-                  setAddingProduct(false)
-                  refreshProducts()
-                  navigate(`/app/products/${productId}`)
-                }}
-                onCancel={() => setAddingProduct(false)}
-              />
+            {createError && (
+              <p className="font-text text-[13px] text-status-rejected">{createError}</p>
             )}
 
             {productsLoading ? (
@@ -245,32 +189,60 @@ export default function AppHome() {
                 No products yet. Add your first one to get started.
               </p>
             ) : (
-              <ul className="flex flex-col gap-3">
-                {products.map((product) => (
-                  <li
-                    key={product.id}
-                    className="flex items-center gap-3 rounded-lg border border-hairline bg-canvas pr-4 transition-colors hover:border-primary"
-                  >
-                    <Link
-                      to={`/app/products/${product.id}`}
-                      className="flex flex-1 items-center justify-between gap-3 px-6 py-5"
-                    >
-                      <span className="font-text text-[17px] font-semibold text-ink">
-                        {product.name}
-                      </span>
-                      <StatusBadge status={product.status} />
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteProduct(product)}
-                      disabled={deletingId === product.id}
-                      className="shrink-0 font-text text-[13px] text-status-rejected disabled:opacity-60"
-                    >
-                      {deletingId === product.id ? 'Removing…' : 'Delete'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <div className="overflow-hidden rounded-lg border border-hairline">
+                <table className="w-full border-collapse text-left">
+                  <thead>
+                    <tr className="bg-canvas-parchment font-text text-[12px] uppercase tracking-[0.06em] text-ink-muted-48">
+                      <th className="w-[64px] px-4 py-3 font-semibold">No.</th>
+                      <th className="w-[28%] px-4 py-3 font-semibold">Brand</th>
+                      <th className="px-4 py-3 font-semibold">Product name</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {products.map((product) => {
+                      const brand = (product.extracted_data as { brand_name?: string } | null)?.brand_name
+                      const open = () => navigate(`/app/products/${product.id}`)
+                      return (
+                        <tr
+                          key={product.id}
+                          onClick={open}
+                          onKeyDown={(e) => e.key === 'Enter' && open()}
+                          tabIndex={0}
+                          className="cursor-pointer border-t border-hairline transition-colors hover:bg-canvas-parchment focus:bg-canvas-parchment focus:outline-none"
+                        >
+                          <td className="px-4 py-4 font-text text-[15px] text-ink-muted-80">
+                            {product.seq_no ?? '–'}
+                          </td>
+                          <td className="px-4 py-4 font-text text-[15px] text-ink">
+                            {brand || <span className="text-ink-muted-48">–</span>}
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex min-w-0 flex-col items-start gap-1">
+                                <span className="font-text text-[15px] font-semibold text-ink">
+                                  {product.name}
+                                </span>
+                                <StatusBadge status={product.status} />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteProduct(product)
+                                }}
+                                disabled={deletingId === product.id}
+                                className="shrink-0 font-text text-[13px] text-status-rejected disabled:opacity-60"
+                              >
+                                {deletingId === product.id ? 'Removing…' : 'Delete'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>

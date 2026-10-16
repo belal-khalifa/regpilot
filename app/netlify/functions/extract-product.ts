@@ -20,6 +20,12 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY as string
 const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest']
 const HARD_LIMIT_MS = 25_000
 
+const DOC_TYPE_LABELS: Record<string, string> = {
+  formula_ingredient_list: 'Formula / ingredient list',
+  certificate_free_sale: 'Certificate of Free Sale / manufacturer docs',
+  label_artwork: 'Label artwork',
+}
+
 const TAXONOMY_FOR_PROMPT = Object.entries(MONTAJI_TAXONOMY)
   .map(([group, cats]) => {
     const lines = Object.entries(cats).map(([cat, subs]) => {
@@ -55,6 +61,12 @@ SHELF LIFE AND DATES (leave out anything you cannot see on the documents)
 - has_production_date, has_expiry_date, has_batch_number: true only if a production/manufacturing date, an expiry date, or a batch/lot code is actually printed or shown on the label.
 - has_period_after_opening: true only if a period-after-opening symbol (the open-jar icon with a number of months) is shown.
 
+CERTIFICATE CHECK
+Each document is introduced by a line saying how the uploader labelled it. If one is labelled "Certificate of Free Sale / manufacturer docs", look at what that certificate covers:
+- certificate_product_match: "yes" if the certificate names this product, "no" if it does not, "not_applicable" if the document is a GMP certificate (it covers a manufacturing site, not products), "no_certificate" if no such document was provided. A close match is fine: the certificate may use a shorter or slightly different wording than the label (for example "Gatsby Styling Gel Wet & Hard" for "Gatsby Styling Gel Wet and Hard Super Hard"), and a product listed with its brand or among many other products still counts. Different products from the same brand do NOT count.
+- certificate_matched_text: when the answer is "yes", the line from the certificate that names the product, copied as written.
+- certificate_products_listed: up to 5 product names the certificate lists (the first ones if there are more).
+
 MONTAJI CLASSIFICATION
 Choose montaji_group, montaji_category and montaji_sub_category from EXACTLY these valid combinations (group, then its categories):
 ${TAXONOMY_FOR_PROMPT}
@@ -86,6 +98,13 @@ export const EXTRACTION_SCHEMA = {
     certificate_number: { type: 'STRING' },
     certificate_issuing_country: { type: 'STRING' },
     label_claims: { type: 'ARRAY', items: { type: 'STRING' } },
+    certificate_product_match: {
+      type: 'STRING',
+      format: 'enum',
+      enum: ['yes', 'no', 'not_applicable', 'no_certificate'],
+    },
+    certificate_matched_text: { type: 'STRING' },
+    certificate_products_listed: { type: 'ARRAY', items: { type: 'STRING' } },
     variants: {
       type: 'ARRAY',
       items: {
@@ -172,7 +191,7 @@ const extractHandler: Handler = async (event) => {
 
   const { data: docs, error: docsError } = await supabase
     .from('product_documents')
-    .select('storage_path, file_name, content_type')
+    .select('storage_path, file_name, content_type, doc_type')
     .eq('product_id', productId)
 
   if (docsError) {
@@ -195,6 +214,9 @@ const extractHandler: Handler = async (event) => {
       .download(doc.storage_path)
     if (downloadError || !fileBlob) continue
     const buffer = Buffer.from(await fileBlob.arrayBuffer())
+    parts.push({
+      text: `Document "${doc.file_name}", uploaded as: ${DOC_TYPE_LABELS[doc.doc_type as string] ?? 'other document'}`,
+    })
     parts.push({
       inlineData: {
         mimeType: doc.content_type || 'application/octet-stream',
@@ -309,7 +331,15 @@ const extractHandler: Handler = async (event) => {
 
   const { error: updateError } = await supabase
     .from('products')
-    .update({ extracted_data: extracted, status: 'extracted', updated_at: new Date().toISOString() })
+    .update({
+      extracted_data: extracted,
+      status: 'extracted',
+      updated_at: new Date().toISOString(),
+      // The list shows the product by its real name, so the extracted one replaces the placeholder.
+      ...(typeof extracted.product_name === 'string' && extracted.product_name.trim()
+        ? { name: extracted.product_name.trim() }
+        : {}),
+    })
     .eq('id', productId)
 
   if (updateError) {
