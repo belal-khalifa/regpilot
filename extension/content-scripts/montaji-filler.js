@@ -672,7 +672,7 @@
     const style = el('style', {
       textContent: `
         .card { position: fixed; right: 20px; bottom: 20px; z-index: 2147483647; width: 340px;
-          max-height: 78vh; overflow: auto; background: #1d1d1f; color: #fff; border-radius: 18px;
+          max-height: calc(100vh - 16px); overflow: auto; background: #1d1d1f; color: #fff; border-radius: 18px;
           padding: 18px; font-family: -apple-system, system-ui, sans-serif;
           box-shadow: 0 10px 40px rgba(0,0,0,.35); }
         .head { cursor: grab; touch-action: none; user-select: none; display: flex; align-items: center; justify-content: space-between; margin: 0 0 4px; }
@@ -744,11 +744,12 @@
     // Dragging: the header is the handle. A press that barely moves is a click (opens the pill).
     const POS_KEY = 'regpilot:panelPosition'
     let justDragged = false
+    const EDGE = 8 // keep a small gap to the window border
     const clamp = (x, y) => {
       const r = card.getBoundingClientRect()
       return {
-        x: Math.min(Math.max(0, x), Math.max(0, window.innerWidth - r.width)),
-        y: Math.min(Math.max(0, y), Math.max(0, window.innerHeight - r.height)),
+        x: Math.min(Math.max(EDGE, x), Math.max(EDGE, window.innerWidth - r.width - EDGE)),
+        y: Math.min(Math.max(EDGE, y), Math.max(EDGE, window.innerHeight - r.height - EDGE)),
       }
     }
     const place = (x, y) => {
@@ -765,10 +766,14 @@
     } catch (_) {
       // no saved position: stay in the bottom-right corner
     }
-    window.addEventListener('resize', () => {
+    // Whenever the window or the panel itself changes size (results appearing, the Documents box,
+    // opening from the pill), pull it back fully on screen.
+    const refit = () => {
       const r = card.getBoundingClientRect()
       if (card.style.left) place(r.left, r.top)
-    })
+    }
+    window.addEventListener('resize', refit)
+    if (typeof ResizeObserver === 'function') new ResizeObserver(refit).observe(card)
 
     head.addEventListener('pointerdown', (event) => {
       if (event.target === minBtn || event.button > 0) return
