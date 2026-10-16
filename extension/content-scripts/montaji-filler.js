@@ -11,6 +11,22 @@
   const F = RP.FIELDS
 
   const HOST_ID = 'regpilot-fill-banner-host'
+
+  // After the extension is reloaded or updated, a page that was already open keeps a dead copy of
+  // this script: every call into the extension fails with "Extension context invalidated".
+  const extensionAlive = () => {
+    try {
+      return Boolean(chrome.runtime && chrome.runtime.id)
+    } catch (_) {
+      return false
+    }
+  }
+  const friendlyError = (err) => {
+    const text = String(err && err.message ? err.message : err)
+    return /context invalidated|Receiving end does not exist/i.test(text) ? RELOADED_MESSAGE : text
+  }
+  const RELOADED_MESSAGE =
+    'The RegPilot extension was reloaded after this Montaji page opened, so this panel is out of date. Refresh the page (F5), reopen your draft if needed, and try again.'
   let pending = null // { productName, data }
   let running = false
   let ui = null // { setStep, setStatus, showResults, setBusy }
@@ -253,6 +269,7 @@
   }
 
   async function loadTemplateBytes() {
+    if (!extensionAlive()) throw new Error(RELOADED_MESSAGE)
     const reply = await new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: 'GET_INGREDIENT_TEMPLATE' }, (r) => resolve(r || {}))
     })
@@ -609,6 +626,7 @@
   }
 
   async function loadDocumentBytes(id) {
+    if (!extensionAlive()) throw new Error(RELOADED_MESSAGE)
     const reply = await new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: 'GET_FILE', id }, (r) => resolve(r || {}))
     })
@@ -673,6 +691,10 @@
 
   async function onUploadConfirmed(plan) {
     if (running || !plan.length) return
+    if (!extensionAlive()) {
+      ui.setStatus(RELOADED_MESSAGE)
+      return
+    }
     running = true
     ui.setBusy(true)
     const report = []
@@ -686,7 +708,7 @@
       }
       ui.setStatus('Uploads finished. Check the list on Montaji, then continue yourself.')
     } catch (err) {
-      report.push({ label: 'Stopped', status: 'manual', detail: String(err && err.message ? err.message : err) })
+      report.push({ label: 'Stopped', status: 'manual', detail: friendlyError(err) })
       ui.showResults(report.slice())
       ui.setStatus('Stopped because of an error.')
     } finally {
@@ -739,6 +761,10 @@
 
   async function onFillClicked() {
     if (running || !pending) return
+    if (!extensionAlive()) {
+      ui.setStatus(RELOADED_MESSAGE)
+      return
+    }
     running = true
     ui.setBusy(true)
     ui.showResults([])
@@ -756,7 +782,7 @@
           : 'Done. Check the items below, then continue yourself.',
       )
     } catch (err) {
-      ui.showResults([{ label: 'Stopped', status: 'manual', detail: String(err && err.message ? err.message : err) }])
+      ui.showResults([{ label: 'Stopped', status: 'manual', detail: friendlyError(err) }])
       ui.setStatus('Stopped because of an error.')
     } finally {
       stopMessageWatcher()
@@ -1033,7 +1059,12 @@
 
   // Keep the step label current as the person moves through the wizard (it is a single-page app).
   setInterval(() => {
-    if (ui && document.getElementById(HOST_ID) && !running) ui.setStep(detectStep())
+    if (!ui || !document.getElementById(HOST_ID) || running) return
+    if (!extensionAlive()) {
+      ui.setStatus(RELOADED_MESSAGE)
+      return
+    }
+    ui.setStep(detectStep())
   }, 1500)
 
   chrome.runtime.sendMessage({ type: 'GET_FILL_DATA' }, (response) => {
