@@ -112,6 +112,13 @@
       (el) => E.isVisible(el) && /Product Ingredients/i.test(el.textContent),
     )
 
+  // A "less than" / "more than" percentage such as "<0.001". Montaji's Excel import only takes plain
+  // numbers, so these rows are typed into Montaji's own ingredient popup, which keeps the sign.
+  function qualifiedPercentage(value) {
+    const m = String(value ?? '').trim().match(/^([<>]=?)\s*(\d+(?:[.,]\d+)?)/)
+    return m ? `${m[1]}${m[2].replace(',', '.')}` : null
+  }
+
   async function addIngredient(ingredient, report) {
     const I = F.ingredient
     const label = `Ingredient: ${ingredient.inci_name}`
@@ -145,16 +152,25 @@
       return false
     }
 
-    const pct = String(ingredient.percentage ?? '').match(/\d+(\.\d+)?/)
-    if (pct) await E.fillText(I.page, I.percentage, pct[0], { root: popup })
+    const plain = String(ingredient.percentage ?? '').match(/\d+(\.\d+)?/)
+    const qualified = qualifiedPercentage(ingredient.percentage)
+    const wanted = qualified || (plain ? plain[0] : null)
+    if (wanted) await E.fillText(I.page, I.percentage, wanted, { root: popup })
 
     E.clickButton('Save', popup)
-    const closed = await E.waitFor(() => !findIngredientPopup(), { timeout: 8000 })
-    report.push({
-      label,
-      status: closed ? 'filled' : 'manual',
-      detail: closed ? 'added' : 'popup did not close - check it',
-    })
+    let closed = await E.waitFor(() => !findIngredientPopup(), { timeout: qualified ? 6000 : 8000 })
+    let detail = closed ? (qualified ? `added with ${qualified}` : 'added') : 'popup did not close - check it'
+
+    // If Montaji refuses the sign, fall back to the plain number rather than leaving the row out.
+    if (!closed && qualified && plain) {
+      await E.fillText(I.page, I.percentage, plain[0], { root: popup })
+      E.clickButton('Save', popup)
+      closed = await E.waitFor(() => !findIngredientPopup(), { timeout: 8000 })
+      detail = closed
+        ? `Montaji did not accept "${qualified}", so ${plain[0]} was entered - check it`
+        : 'popup did not close - check it'
+    }
+    report.push({ label, status: closed ? (detail === 'added' || detail.startsWith('added with') ? 'filled' : 'manual') : 'manual', detail })
     return Boolean(closed)
   }
 
@@ -262,10 +278,26 @@
     }
     if (!ready.length) return
 
-    ui.setStatus(`${prefix}importing ${ready.length} ingredients...`)
+    // Rows with a "<" or ">" go through the popup (see qualifiedPercentage); the rest are imported.
+    const qualifiedRows = ready.filter((i) => qualifiedPercentage(i.percentage))
+    const importRows = ready.filter((i) => !qualifiedPercentage(i.percentage))
+
+    async function addQualifiedRows() {
+      for (let i = 0; i < qualifiedRows.length; i++) {
+        ui.setStatus(`${prefix}ingredient with a "<" percentage ${i + 1} of ${qualifiedRows.length}...`)
+        await addIngredient(qualifiedRows[i], report)
+      }
+    }
+
+    if (!importRows.length) {
+      await addQualifiedRows()
+      return
+    }
+
+    ui.setStatus(`${prefix}importing ${importRows.length} ingredients...`)
     let outcome
     try {
-      outcome = await importIngredientsFile(ready)
+      outcome = await importIngredientsFile(importRows)
     } catch (err) {
       outcome = { ok: false, reason: String(err && err.message ? err.message : err) }
     }
@@ -286,6 +318,7 @@
           detail: `Add these yourself: ${outcome.built.skipped.join(', ')}`,
         })
       }
+      await addQualifiedRows()
       return
     }
 
