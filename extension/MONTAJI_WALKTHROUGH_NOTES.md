@@ -391,3 +391,15 @@ kept only as an automatic fallback.
    and/or programmatic file-attach via DataTransfer for the Attachments uploads —
    both are confirmed technically viable, just extra scope beyond v1 text-field
    filling.
+
+
+## Variant rows: how "Add New Variant" really behaves (checked live)
+- "Add New Variant" adds a row (CPRED-...-0001, -0002, ...) and then opens the form of the FIRST row,
+  whichever row was just added. Verified by adding -0005 with -0001..-0004 present: -0001 got selected.
+- The first variant therefore needs no row click; its form is already open. Clicking the already
+  selected row CLOSES the form (toggle).
+- The form only exists while a row is selected. Variant 2+ need their new row clicked to swap the form.
+- Row click must land on the Product Name cell (td index 2). The first cell (request number) ignores clicks.
+- Montaji also pre-creates one blank row (-0001) when the product base is saved, so on arrival at
+  Step 4 the grid may already have a row with no form open.
+- Blank rows are reused before new ones are added, so retries do not pile up empty variants.

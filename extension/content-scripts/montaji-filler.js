@@ -384,19 +384,9 @@
     return cells.length > 1 && !cells[1].textContent.trim()
   }
 
-  async function selectBlankRow() {
-    const row = variantRows().find(rowIsBlank)
-    if (!row) return false
-    clickRow(row)
-    return true
-  }
-
-  async function selectLastVariantRow() {
-    const rows = variantRows()
-    const last = rows[rows.length - 1]
-    if (!last) return false
-    clickRow(last)
-    return true
+  const rowKey = (row) => {
+    const first = row.querySelector('td')
+    return first ? first.textContent.trim() : ''
   }
 
   const blankVariantForm = () => {
@@ -404,36 +394,52 @@
     return el && !el.value.trim() ? el : null
   }
 
+  // Selects an unfilled row (one that is not already open, since clicking the open row closes its
+  // form). Rows this run has already filled are skipped even if Montaji has not shown a barcode yet.
+  async function selectBlankRow(filledKeys) {
+    const row = variantRows().find((r) => rowIsBlank(r) && !filledKeys.has(rowKey(r)))
+    if (!row) return false
+    if (row.classList.contains('selected') && E.findInput(F.variant.page, F.variant.barcode)) return true
+    clickRow(row)
+    return true
+  }
+
+  // What Montaji does (checked live): "Add New Variant" adds a row and then opens the form of the
+  // FIRST row, whatever was added. So the very first variant needs no click at all (its form is
+  // already open, and clicking it would close it), while every later variant needs its new row
+  // clicked to swap the form over to it.
+  async function openBlankVariantForm(filledKeys) {
+    if (blankVariantForm()) return true
+
+    if (await selectBlankRow(filledKeys)) return Boolean(await E.waitFor(blankVariantForm, { timeout: 10000 }))
+
+    if (!E.clickButton('Add New Variant')) return false
+    await E.waitFor(() => blankVariantForm() || variantRows().some((r) => rowIsBlank(r) && !filledKeys.has(rowKey(r))), {
+      timeout: 8000,
+    })
+    // Give Montaji time to finish deciding which row's form to show before looking at it.
+    await E.sleep(1500)
+    if (blankVariantForm()) return true
+    if (!(await selectBlankRow(filledKeys))) return false
+    return Boolean(await E.waitFor(blankVariantForm, { timeout: 10000 }))
+  }
+
   async function fillVariants(data, report) {
     const variants = data.variants && data.variants.length ? data.variants : [{}]
+    const filledKeys = new Set()
 
     for (let i = 0; i < variants.length; i++) {
       ui.setStatus(`Variant ${i + 1} of ${variants.length}...`)
 
-      if (!blankVariantForm()) {
-        // 1) an empty row Montaji already made; 2) otherwise a brand new variant.
-        let opened = await selectBlankRow()
-        if (!opened) {
-          if (!E.clickButton('Add New Variant')) {
-            info(report, `Variant ${i + 1}`, 'Could not find the "Add New Variant" button.')
-            return
-          }
-          await E.sleep(2000)
-          opened = await selectLastVariantRow()
-          if (!opened) {
-            info(report, `Variant ${i + 1}`, 'Added, but could not select its row in the variants list.')
-            return
-          }
-        }
-        // Wait for the blank form of the selected row; never write over another variant.
-        const blank = await E.waitFor(blankVariantForm, { timeout: 10000 })
-        if (!blank) {
-          info(report, `Variant ${i + 1}`, 'The form did not open as a blank variant - stopped to avoid overwriting one that has data.')
-          return
-        }
+      // Never write over a variant that already has data: only a blank form is used.
+      if (!(await openBlankVariantForm(filledKeys))) {
+        info(report, `Variant ${i + 1}`, 'Could not open a blank variant form - stopped so nothing that has data is overwritten.')
+        return
       }
 
+      const open = variantRows().find((r) => r.classList.contains('selected'))
       await fillOneVariant(variants[i], data, i, variants.length, report)
+      if (open) filledKeys.add(rowKey(open))
     }
   }
 
