@@ -9,7 +9,7 @@ touches the declaration tick-box, and never sees your Montaji password.
 1. Open `chrome://extensions` and switch on **Developer mode** (top right).
 2. **Load unpacked** and choose this `extension` folder. After any code change, press the circular
    **reload** arrow on the RegPilot card, then refresh the Montaji tab and the RegPilot tab.
-3. The extension only runs on `https://regpilot-app.pages.dev`, `https://regpilot-app.netlify.app`, `http://localhost:5173` and
+3. The extension only runs on `https://regpilot-app.pages.dev` and `http://localhost:5173` (RegPilot) and and
    `https://montajiprd.dm.gov.ae`.
 
 ## How a fill works

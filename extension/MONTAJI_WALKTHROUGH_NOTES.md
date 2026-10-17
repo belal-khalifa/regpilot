@@ -15,7 +15,7 @@ resumed exactly where we left off, so that pattern seems reliably safe for futur
 sessions too.
 
 **Taxonomy crawl (Group → Category → Sub-Category) — done for the two groups that
-matter, saved as `app/src/lib/montajiTaxonomy.ts` (the single source of truth; the Netlify extraction function and the review form both import it).** Goal (per Belal):
+matter, saved as `app/src/lib/montajiTaxonomy.ts` (the single source of truth; the Supabase extraction function and the review form both import it).** Goal (per Belal):
 constrain AI classification to real Montaji values instead of free text, with a
 confidence gate deciding auto-fill vs. flag-for-review, working toward trusting
 full automation once confidence is proven.
@@ -245,7 +245,7 @@ from the Attachments' "Ingredients Report" file upload:
     fully mapped and tested working end-to-end, which is enough to ship. Revisit
     this once ingredient-heavy products make the per-row modal feel slow. Note:
     generating a real .xlsx (not just CSV) needs a spreadsheet-writing library in
-    the Netlify function — doable, just extra scope.
+    the extraction function — doable, just extra scope.
 - **"New" row-add form — now fully mapped and tested end-to-end (one real row
   saved successfully: AQUA, 70%):** opens a "Product Ingredients" modal
   (`.modal-dialog.mx-window.mx-window-active`), with a note: "If you don't find the

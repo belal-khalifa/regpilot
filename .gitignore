@@ -2,7 +2,6 @@ node_modules/
 dist/
 .env
 .env.local
-.netlify/
 .DS_Store
 
 # real client documents must never be committed

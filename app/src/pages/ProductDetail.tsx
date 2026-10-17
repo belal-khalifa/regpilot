@@ -16,9 +16,8 @@ const DOC_TYPES: DocumentType[] = [
   'label_artwork',
 ]
 
-// Where extraction runs. Set VITE_EXTRACT_FUNCTION_URL to the Supabase function address to use it;
-// without it the Netlify function is used.
-const EXTRACT_URL = import.meta.env.VITE_EXTRACT_FUNCTION_URL || '/.netlify/functions/extract-product'
+// Extraction runs as a Supabase Edge Function on the same project as the database.
+const EXTRACT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-product`
 const PUBLIC_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
 
 const FILLABLE_STATUSES: ProductStatus[] = ['ready_to_fill', 'submitted', 'approved', 'rejected']

@@ -19,7 +19,7 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') as string
 // The newest flash model is sometimes overloaded (503); the lite model answers well too. Both are
 // asked at once and the first good answer wins.
 const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest']
-// Supabase allows far longer than Netlify did; this stays well inside it.
+// Supabase allows several minutes per request; this stays well inside it.
 const HARD_LIMIT_MS = 110_000
 
 const CORS = {
