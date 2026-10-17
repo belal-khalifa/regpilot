@@ -49,9 +49,10 @@ export default function AppHome() {
       return
     }
     setDeletingId(product.id)
-    const { error } = await deleteProduct(product)
+    const { error, warning } = await deleteProduct(product)
     setDeletingId(null)
     if (error) window.alert(error)
+    else if (warning) window.alert(warning)
   }
 
   // A new product starts as an empty shell: the documents are uploaded next, and the AI reads the

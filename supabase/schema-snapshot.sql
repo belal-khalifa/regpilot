@@ -3,6 +3,8 @@
 -- This is for review and for rebuilding the project elsewhere; it is not meant to be run on top of
 -- the live database. The database was created through Supabase, so this file is generated from it.
 -- When you change the database, change it in Supabase and refresh this file.
+-- Checked against the live project on 2026-10-17 (policies, functions, triggers and bucket settings
+-- were read back from Supabase when this file was written).
 --
 -- How access works: every table has Row Level Security on. A person belongs to companies through
 -- company_members; is_company_member(company_id) is the single check used by every policy. Files in
@@ -10,8 +12,12 @@
 -- first folder name as the company.
 
 -- ---------------------------------------------------------------- storage bucket
--- bucket product-documents: private, 15 MB per file, allowed types
---   application/pdf, image/png, image/jpeg, image/webp, image/heic, image/heif
+-- Private bucket, 15 MB per file, PDF and image types only. (On a new project, run this once.)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('product-documents', 'product-documents', false, 15 * 1024 * 1024,
+        array['application/pdf','image/png','image/jpeg','image/webp','image/heic','image/heif'])
+on conflict (id) do update
+  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 -- ---------------------------------------------------------------- types
 create type public.document_type as enum ('formula_ingredient_list', 'certificate_free_sale', 'label_artwork');
@@ -148,9 +154,11 @@ $$;
 create trigger products_assign_seq_no before insert on public.products
   for each row execute function public.assign_product_seq_no();
 
+-- Inserts are serialized per product so the cap cannot be raced.
 create or replace function public.limit_documents_per_product() returns trigger
 language plpgsql set search_path to 'public' as $$
 begin
+  perform pg_advisory_xact_lock(hashtext('docs:' || new.product_id::text));
   if (select count(*) from public.product_documents where product_id = new.product_id) >= 20 then
     raise exception 'A product can have at most 20 documents';
   end if;
@@ -187,10 +195,43 @@ create policy "product_documents: members can delete their company's documents" 
   using (exists (select 1 from products where products.id = product_documents.product_id and is_company_member(products.company_id)));
 
 create policy "extraction_runs: view own runs" on public.extraction_runs for select using (user_id = auth.uid());
-create policy "extraction_runs: record own runs for products they can access" on public.extraction_runs for insert
-  with check (user_id = auth.uid() and exists (select 1 from products p where p.id = extraction_runs.product_id and is_company_member(p.company_id)));
-create policy "extraction_runs: finish own runs" on public.extraction_runs for update
-  using (user_id = auth.uid()) with check (user_id = auth.uid());
+-- Runs are written only through the two functions below (no insert/update policies on purpose).
+
+-- Reserve a run in one atomic step: access check, one run per product at a time (across all members),
+-- and a per-person hourly limit. Error codes: RP001 already running, RP002 too many runs.
+create or replace function public.claim_extraction_run(p_product_id uuid, p_max_per_hour int, p_stale_seconds int)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  rid uuid;
+begin
+  if uid is null then raise exception 'not signed in' using errcode = '28000'; end if;
+  if not exists (select 1 from public.products p where p.id = p_product_id and public.is_company_member(p.company_id)) then
+    raise exception 'no access to this product' using errcode = '42501';
+  end if;
+  perform pg_advisory_xact_lock(hashtext('extract-product:' || p_product_id::text));
+  perform pg_advisory_xact_lock(hashtext('extract-user:' || uid::text));
+  if exists (select 1 from public.extraction_runs r where r.product_id = p_product_id and r.finished_at is null
+             and r.started_at > now() - make_interval(secs => p_stale_seconds)) then
+    raise exception 'extraction already running for this product' using errcode = 'RP001';
+  end if;
+  if (select count(*) from public.extraction_runs r where r.user_id = uid and r.started_at > now() - interval '1 hour') >= p_max_per_hour then
+    raise exception 'too many extraction runs this hour' using errcode = 'RP002';
+  end if;
+  insert into public.extraction_runs (user_id, product_id) values (uid, p_product_id) returning id into rid;
+  return rid;
+end;
+$$;
+
+create or replace function public.finish_extraction_run(p_run_id uuid) returns void
+language sql security definer set search_path = public as $$
+  update public.extraction_runs set finished_at = now() where id = p_run_id and user_id = auth.uid() and finished_at is null;
+$$;
+
+revoke all on function public.claim_extraction_run(uuid, int, int) from public, anon;
+revoke all on function public.finish_extraction_run(uuid) from public, anon;
+grant execute on function public.claim_extraction_run(uuid, int, int) to authenticated;
+grant execute on function public.finish_extraction_run(uuid) to authenticated;
 
 -- storage.objects (private bucket "product-documents"; first folder of the path is the company id)
 create policy "product-documents storage: members can read" on storage.objects for select

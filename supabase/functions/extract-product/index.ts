@@ -24,7 +24,8 @@ const HARD_LIMIT_MS = 110_000
 // Abuse and cost controls (the database also caps files at 15 MB each and 20 per product).
 const MAX_TOTAL_BYTES = 40 * 1024 * 1024
 const MAX_RUNS_PER_HOUR = 20
-const RUN_STALE_MS = 3 * 60 * 1000 // a run with no finish time older than this is treated as dead
+// A run with no finish time older than this is treated as dead (longer than any request can last).
+const RUN_STALE_MS = 5 * 60 * 1000
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -376,44 +377,30 @@ async function extractHandler(req: Request): Promise<Response> {
     return json(400, { error: 'Upload at least one document first' })
   }
 
-  // Who is calling, and have they run extraction too often?
-  const { data: userData } = await supabase.auth.getUser(accessToken)
-  const user = userData?.user
-  if (!user) return json(401, { error: 'Your session expired. Please sign in again.' })
-
-  const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-  const { count: recentRuns } = await supabase
-    .from('extraction_runs')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .gte('started_at', hourAgo)
-  if ((recentRuns ?? 0) >= MAX_RUNS_PER_HOUR) {
-    return json(429, { error: 'Extraction has been run many times in the last hour. Please wait a little and try again.' })
+  // Reserve a run in ONE atomic database step: access check, "one run per product at a time" (across
+  // all company members) and the per-person hourly limit. If the check itself fails, extraction does
+  // not start.
+  const { data: runId, error: claimError } = await supabase.rpc('claim_extraction_run', {
+    p_product_id: productId,
+    p_max_per_hour: MAX_RUNS_PER_HOUR,
+    p_stale_seconds: RUN_STALE_MS / 1000,
+  })
+  if (claimError) {
+    if (claimError.code === 'RP001') {
+      return json(409, { error: 'Extraction is already running for this product. Please wait for it to finish.' })
+    }
+    if (claimError.code === 'RP002') {
+      return json(429, { error: 'Extraction has been run many times in the last hour. Please wait a little and try again.' })
+    }
+    console.error('Could not reserve an extraction run', claimError.code, claimError.message)
+    return json(503, { error: 'Could not start extraction safely. Please try again in a moment.' })
   }
-
-  // Only one run per product at a time.
-  const staleCutoff = new Date(Date.now() - RUN_STALE_MS).toISOString()
-  const { data: running } = await supabase
-    .from('extraction_runs')
-    .select('id')
-    .eq('product_id', productId)
-    .is('finished_at', null)
-    .gte('started_at', staleCutoff)
-    .limit(1)
-  if (running && running.length > 0) {
-    return json(409, { error: 'Extraction is already running for this product. Please wait for it to finish.' })
-  }
-
-  const { data: run } = await supabase
-    .from('extraction_runs')
-    .insert({ user_id: user.id, product_id: productId })
-    .select('id')
-    .single()
 
   try {
     return await extractCore(supabase, productId, docs)
   } finally {
-    if (run) await supabase.from('extraction_runs').update({ finished_at: new Date().toISOString() }).eq('id', run.id)
+    const { error: finishError } = await supabase.rpc('finish_extraction_run', { p_run_id: runId })
+    if (finishError) console.error('Could not mark the extraction run finished', finishError.message)
   }
 }
 

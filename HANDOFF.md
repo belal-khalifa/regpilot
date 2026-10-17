@@ -51,7 +51,7 @@ The website derives the extraction address from `VITE_SUPABASE_URL`.
 triggers, bucket limits). Change the database in Supabase, then refresh that file. Safeguards in
 place: only members can add members; bucket caps files at 15 MB and PDF/image types; at most 20
 documents per product; extraction limits (40 MB total per run, 20 runs per person per hour, one run
-per product at a time, tracked in `extraction_runs`); error messages to users are generic, details go
+per product at a time, reserved atomically by the database function `claim_extraction_run`; fails closed if the check itself fails); error messages to users are generic, details go
 to the function logs.
 
 **Deploying the extraction function:** the repo copy is the source of truth. It cannot import from
