@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import {
   useRegPilotExtension,
@@ -77,12 +78,11 @@ export default function MontajiFillPanel({
       {!installed ? (
         <>
           <p className="font-text text-[14px] leading-[1.47] text-ink-muted-80">
-            The RegPilot browser extension isn't detected in this browser. Install it, then come
-            back to this page.
-          </p>
-          <p className="font-text text-[13px] text-ink-muted-48">
-            (Dev build: load the <code>extension</code> folder as an unpacked extension via
-            chrome://extensions.)
+            The RegPilot browser extension isn't detected in this browser.{' '}
+            <Link to="/extension" className="text-primary underline">
+              Install it
+            </Link>
+            , then come back to this page.
           </p>
         </>
       ) : queued ? (

@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/AuthProvider'
 import { supabase } from '../lib/supabase'
+import ExtensionBanner from './ExtensionBanner'
 
 export default function GlobalNav() {
   const { session } = useAuth()
@@ -12,12 +13,17 @@ export default function GlobalNav() {
   }
 
   return (
+    <>
     <header className="sticky top-0 z-50 flex h-11 items-center justify-between bg-surface-black px-6">
       <Link
         to="/"
         className="font-display text-[15px] font-semibold tracking-[-0.12px] text-on-dark"
       >
         RegPilot
+      </Link>
+      <div className="flex items-center gap-4">
+      <Link to="/extension" className="font-text text-[14px] text-on-dark">
+        Extension
       </Link>
       {session ? (
         <button
@@ -35,6 +41,9 @@ export default function GlobalNav() {
           Sign in
         </Link>
       )}
+      </div>
     </header>
+    {session && <ExtensionBanner />}
+    </>
   )
 }

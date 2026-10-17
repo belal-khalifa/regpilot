@@ -7,9 +7,12 @@
 // It never reads anything else off the page, and never talks to Montaji.
 
 const EXTENSION_READY_ATTR = 'data-regpilot-extension'
+const EXTENSION_VERSION_ATTR = 'data-regpilot-extension-version'
 
 function announceReady() {
   document.documentElement.setAttribute(EXTENSION_READY_ATTR, 'installed')
+  // Lets the web app warn when this build is older than the one it offers for download.
+  document.documentElement.setAttribute(EXTENSION_VERSION_ATTR, chrome.runtime.getManifest().version)
   window.dispatchEvent(new CustomEvent('regpilot:extension-ready'))
 }
 

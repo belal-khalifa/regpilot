@@ -80,6 +80,9 @@ export default function Landing() {
             Montaji session — you click the final Submit yourself. RegPilot never sees or stores
             your Montaji password, and never submits on your behalf.
           </p>
+          <Link to="/extension" className="font-text text-[17px] text-primary underline">
+            Get the extension
+          </Link>
         </div>
       </section>
 
