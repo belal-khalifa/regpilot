@@ -22,6 +22,11 @@ touches the declaration tick-box, and never sees your Montaji password.
    yourself (for example uploading attachments) and anything it skipped.
 4. You press Next / Save and Validate / Submit on Montaji yourself.
 
+## How long data is kept
+
+The queued product and its documents stay in the extension for up to 8 hours. They are dropped
+earlier when you press Clear, when you sign out of RegPilot, or when the browser starts.
+
 ## Uploading documents
 
 Documents you uploaded in RegPilot travel with "Send to extension". They are only attached on

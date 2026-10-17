@@ -21,6 +21,10 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') as string
 const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest']
 // Supabase allows several minutes per request; this stays well inside it.
 const HARD_LIMIT_MS = 110_000
+// Abuse and cost controls (the database also caps files at 15 MB each and 20 per product).
+const MAX_TOTAL_BYTES = 40 * 1024 * 1024
+const MAX_RUNS_PER_HOUR = 20
+const RUN_STALE_MS = 3 * 60 * 1000 // a run with no finish time older than this is treated as dead
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -180,58 +184,24 @@ function postProcess(raw: Record<string, unknown>): Record<string, unknown> {
   return data
 }
 
-async function extractHandler(req: Request): Promise<Response> {
-  if (req.method !== 'POST') return json(405, { error: 'Method not allowed' })
-
-  const authHeader = req.headers.get('authorization') ?? ''
-  if (!authHeader.startsWith('Bearer ')) return json(401, { error: 'Missing bearer token' })
-  const accessToken = authHeader.slice('Bearer '.length)
-  // The browser sends the project's public key with every request; reuse it for the database call.
-  const publicKey = req.headers.get('apikey') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? ''
-
-  let productId: string | undefined
-  try {
-    ;({ productId } = await req.json())
-  } catch {
-    return json(400, { error: 'Invalid JSON body' })
-  }
-  if (!productId) return json(400, { error: 'productId is required' })
-
-  const supabase = createClient(SUPABASE_URL, publicKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  })
-
-  const { data: product, error: productError } = await supabase
-    .from('products')
-    .select('id, company_id, name')
-    .eq('id', productId)
-    .single()
-
-  if (productError || !product) {
-    return json(404, { error: 'Product not found or access denied' })
-  }
-
-  const { data: docs, error: docsError } = await supabase
-    .from('product_documents')
-    .select('storage_path, file_name, content_type, doc_type')
-    .eq('product_id', productId)
-
-  if (docsError) {
-    return json(500, { error: docsError.message })
-  }
-  if (!docs || docs.length === 0) {
-    return json(400, { error: 'Upload at least one document first' })
-  }
-
+// Reads the documents, asks Gemini and stores the result. Called once the caller, the product and
+// the usage limits have been checked.
+// deno-lint-ignore no-explicit-any
+async function extractCore(supabase: any, productId: string, docs: any[]): Promise<Response> {
   const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
     { text: EXTRACTION_PROMPT },
   ]
 
+  let totalBytes = 0
   for (const doc of docs) {
     const { data: fileBlob, error: downloadError } = await supabase.storage
       .from('product-documents')
       .download(doc.storage_path)
     if (downloadError || !fileBlob) continue
+    totalBytes += fileBlob.size
+    if (totalBytes > MAX_TOTAL_BYTES) {
+      return json(413, { error: 'These documents are too large to read together (over 40 MB in total). Remove some or use smaller files.' })
+    }
     const bytes = new Uint8Array(await fileBlob.arrayBuffer())
     parts.push({
       text: `Document "${doc.file_name}", uploaded as: ${DOC_TYPE_LABELS[doc.doc_type as string] ?? 'other document'}`,
@@ -320,9 +290,8 @@ async function extractHandler(req: Request): Promise<Response> {
   }
 
   if (!geminiJson) {
-    return json(502, {
-      error: `The AI service did not answer in time. Please try again. (${errors.slice(-2).join(' | ').slice(0, 240)})`,
-    })
+    console.error('Gemini gave no answer', errors.slice(-4).join(' | '))
+    return json(502, { error: 'The AI service did not answer in time. Please try again in a minute.' })
   }
 
   const candidateParts = (geminiJson as { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }> })
@@ -332,14 +301,14 @@ async function extractHandler(req: Request): Promise<Response> {
     .map((p) => p.text)
     .join('')
   if (!rawText) {
-    return json(502, { error: 'Gemini returned no extractable content' })
+    return json(502, { error: 'The AI returned no content. Please try again.' })
   }
 
   let extracted: Record<string, unknown>
   try {
     extracted = postProcess(JSON.parse(rawText))
   } catch {
-    return json(502, { error: 'Gemini returned malformed JSON' })
+    return json(502, { error: 'The AI returned an unreadable answer. Please try again.' })
   }
 
   const { error: updateError } = await supabase
@@ -356,10 +325,96 @@ async function extractHandler(req: Request): Promise<Response> {
     .eq('id', productId)
 
   if (updateError) {
-    return json(500, { error: updateError.message })
+    console.error('Saving extraction failed', updateError.message)
+    return json(500, { error: 'The documents were read but the result could not be saved. Please try again.' })
   }
 
   return json(200, { extracted_data: extracted })
+}
+
+async function extractHandler(req: Request): Promise<Response> {
+  if (req.method !== 'POST') return json(405, { error: 'Method not allowed' })
+
+  const authHeader = req.headers.get('authorization') ?? ''
+  if (!authHeader.startsWith('Bearer ')) return json(401, { error: 'Missing bearer token' })
+  const accessToken = authHeader.slice('Bearer '.length)
+  // The browser sends the project's public key with every request; reuse it for the database call.
+  const publicKey = req.headers.get('apikey') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+
+  let productId: string | undefined
+  try {
+    ;({ productId } = await req.json())
+  } catch {
+    return json(400, { error: 'Invalid JSON body' })
+  }
+  if (!productId) return json(400, { error: 'productId is required' })
+
+  const supabase = createClient(SUPABASE_URL, publicKey, {
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  })
+
+  const { data: product, error: productError } = await supabase
+    .from('products')
+    .select('id, company_id, name')
+    .eq('id', productId)
+    .single()
+
+  if (productError || !product) {
+    return json(404, { error: 'Product not found or access denied' })
+  }
+
+  const { data: docs, error: docsError } = await supabase
+    .from('product_documents')
+    .select('storage_path, file_name, content_type, doc_type')
+    .eq('product_id', productId)
+
+  if (docsError) {
+    console.error('Reading documents failed', docsError.message)
+    return json(500, { error: 'Could not read this product\'s documents.' })
+  }
+  if (!docs || docs.length === 0) {
+    return json(400, { error: 'Upload at least one document first' })
+  }
+
+  // Who is calling, and have they run extraction too often?
+  const { data: userData } = await supabase.auth.getUser(accessToken)
+  const user = userData?.user
+  if (!user) return json(401, { error: 'Your session expired. Please sign in again.' })
+
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const { count: recentRuns } = await supabase
+    .from('extraction_runs')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .gte('started_at', hourAgo)
+  if ((recentRuns ?? 0) >= MAX_RUNS_PER_HOUR) {
+    return json(429, { error: 'Extraction has been run many times in the last hour. Please wait a little and try again.' })
+  }
+
+  // Only one run per product at a time.
+  const staleCutoff = new Date(Date.now() - RUN_STALE_MS).toISOString()
+  const { data: running } = await supabase
+    .from('extraction_runs')
+    .select('id')
+    .eq('product_id', productId)
+    .is('finished_at', null)
+    .gte('started_at', staleCutoff)
+    .limit(1)
+  if (running && running.length > 0) {
+    return json(409, { error: 'Extraction is already running for this product. Please wait for it to finish.' })
+  }
+
+  const { data: run } = await supabase
+    .from('extraction_runs')
+    .insert({ user_id: user.id, product_id: productId })
+    .select('id')
+    .single()
+
+  try {
+    return await extractCore(supabase, productId, docs)
+  } finally {
+    if (run) await supabase.from('extraction_runs').update({ finished_at: new Date().toISOString() }).eq('id', run.id)
+  }
 }
 
 // Anything unexpected becomes a readable JSON error instead of a bare gateway failure.
@@ -369,6 +424,6 @@ Deno.serve(async (req) => {
     return await extractHandler(req)
   } catch (err) {
     console.error('extract-product crashed', err)
-    return json(500, { error: `Extraction crashed: ${err instanceof Error ? err.message : String(err)}` })
+    return json(500, { error: 'Something went wrong while reading the documents. Please try again.' })
   }
 })

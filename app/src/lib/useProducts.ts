@@ -40,15 +40,17 @@ export function useProducts(companyId: string | null) {
       .eq('product_id', product.id)
     if (docsError) return { error: docsError.message }
 
+    // Delete the product first (its document records go with it). If that fails nothing is lost; if
+    // removing the files fails afterwards, only stray files are left, never a product without files.
+    const { error: deleteError } = await supabase.from('products').delete().eq('id', product.id)
+    if (deleteError) return { error: deleteError.message }
+
     if (docs && docs.length > 0) {
       const { error: storageError } = await supabase.storage
         .from('product-documents')
         .remove(docs.map((d) => d.storage_path))
-      if (storageError) return { error: storageError.message }
+      if (storageError) console.error('Could not remove some files of a deleted product', storageError.message)
     }
-
-    const { error: deleteError } = await supabase.from('products').delete().eq('id', product.id)
-    if (deleteError) return { error: deleteError.message }
 
     await refresh()
     return { error: null }

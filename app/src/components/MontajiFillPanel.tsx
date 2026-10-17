@@ -112,6 +112,7 @@ export default function MontajiFillPanel({
             extension — it only fills a step when you click "Fill this step" there yourself.
             {documents.length > 0 &&
               ' Your uploaded documents travel with it, and are only attached on Montaji after you confirm there.'}
+            {' It stays in the extension for up to 8 hours, until you press Clear, or until you sign out of RegPilot.'}
           </p>
           <button
             type="button"

@@ -5,6 +5,7 @@ import {
   SHELF_LIFE_PERIOD_TYPES,
   VOLUME_UNITS,
   categoriesForGroup,
+  documentWarnings,
   montajiReadinessIssues,
   subCategoriesFor,
 } from '../lib/montajiFields'
@@ -132,6 +133,21 @@ export default function ExtractionReviewForm({
   const readinessIssues = montajiReadinessIssues(buildData())
 
   async function handleSave(markReady: boolean) {
+    // Marking ready is advisory, but if things are still missing or doubtful, say so first.
+    if (markReady) {
+      const data = buildData()
+      const issues = [...documentWarnings(data), ...montajiReadinessIssues(data)]
+      if (issues.length > 0) {
+        const shown = issues
+          .slice(0, 6)
+          .map((i) => `\u2022 ${i}`)
+          .join('\n')
+        const more = issues.length > 6 ? `\n...and ${issues.length - 6} more` : ''
+        if (!window.confirm(`Some things are still missing or doubtful:\n\n${shown}${more}\n\nMark this product ready anyway?`)) {
+          return
+        }
+      }
+    }
     setSaving(markReady ? 'ready' : 'save')
     setError(null)
     setSavedNotice(null)

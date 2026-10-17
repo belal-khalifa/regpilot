@@ -20,7 +20,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
+      // Documents queued in the extension belong to this sign-in: tell it to drop them.
+      if (event === 'SIGNED_OUT') window.dispatchEvent(new CustomEvent('regpilot:signed-out'))
       setSession(newSession)
       setLoading(false)
     })

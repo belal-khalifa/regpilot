@@ -47,6 +47,13 @@ extraction confidence is high enough. Do not build it without asking.
 Cloudflare environment variables (names only): `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`.
 The website derives the extraction address from `VITE_SUPABASE_URL`.
 
+**Database:** `supabase/schema-snapshot.sql` is a reference export of the live rules (tables, policies,
+triggers, bucket limits). Change the database in Supabase, then refresh that file. Safeguards in
+place: only members can add members; bucket caps files at 15 MB and PDF/image types; at most 20
+documents per product; extraction limits (40 MB total per run, 20 runs per person per hour, one run
+per product at a time, tracked in `extraction_runs`); error messages to users are generic, details go
+to the function logs.
+
 **Deploying the extraction function:** the repo copy is the source of truth. It cannot import from
 `app/`, so `scripts/sync-supabase-shared.sh` copies the two shared files
 (`montajiTaxonomy.ts`, the extraction part of `montajiFields.ts`) into the function folder. After
@@ -108,6 +115,7 @@ pressed twice on the same variant (see the QA workbook "record what happens" cas
    (move them out of `MONTAJI_PENDING_GROUPS`; run the sync script; redeploy the function).
 8. Product Image upload category (optional on Montaji, later). Laboratory Test Report is ignored.
 9. Nothing warns when a UAE product has no GMP certificate yet.
+10. Set a monthly spend cap on the Gemini key in Google's billing page (owner action).
 
 ## 6. Gotchas
 

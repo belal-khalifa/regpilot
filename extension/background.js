@@ -4,6 +4,29 @@
 // never talks to RegPilot's servers or Montaji directly, it only relays data
 // that already left the user's own logged-in RegPilot browser tab.
 
+// Queued products and their documents are sensitive, so they are not kept indefinitely: they expire
+// after 8 hours, and are also dropped when the browser starts and when the person signs out of RegPilot.
+const MAX_AGE_MS = 8 * 60 * 60 * 1000
+
+function clearQueue(done) {
+  chrome.storage.local.remove(['pendingFill', 'pendingFiles'], done)
+}
+
+// Calls back with the queued product, or null if there is none or it has expired (and then clears it).
+function readQueue(callback) {
+  chrome.storage.local.get('pendingFill', (result) => {
+    const pending = result.pendingFill ?? null
+    if (pending && pending.queuedAt && Date.now() - pending.queuedAt > MAX_AGE_MS) {
+      clearQueue(() => callback(null))
+    } else {
+      callback(pending)
+    }
+  })
+}
+
+chrome.runtime.onStartup.addListener(() => clearQueue())
+readQueue(() => {}) // the worker waking up is a good moment to drop an expired queue
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'STORE_FILL_DATA') {
     // The document bytes travel with the product but are kept apart from it, so the small
@@ -11,6 +34,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const { files = [], ...rest } = message.payload || {}
     const pendingFill = {
       ...rest,
+      queuedAt: Date.now(),
       documents: files.map(({ id, docType, name, type, size }) => ({ id, docType, name, type, size })),
     }
     const pendingFiles = {}
@@ -29,24 +53,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'GET_FILE') {
-    chrome.storage.local.get('pendingFiles', (result) => {
-      const files = result.pendingFiles || {}
-      sendResponse({ base64: files[message.id] || null })
+    readQueue((pending) => {
+      if (!pending) return sendResponse({ base64: null })
+      chrome.storage.local.get('pendingFiles', (result) => {
+        const files = result.pendingFiles || {}
+        sendResponse({ base64: files[message.id] || null })
+      })
     })
     return true
   }
 
   if (message.type === 'GET_FILL_DATA') {
-    chrome.storage.local.get('pendingFill', (result) => {
-      sendResponse({ pendingFill: result.pendingFill ?? null })
-    })
+    readQueue((pending) => sendResponse({ pendingFill: pending }))
     return true
   }
 
   if (message.type === 'CLEAR_FILL_DATA') {
-    chrome.storage.local.remove(['pendingFill', 'pendingFiles'], () => {
-      sendResponse({ ok: true })
-    })
+    clearQueue(() => sendResponse({ ok: true }))
     return true
   }
 

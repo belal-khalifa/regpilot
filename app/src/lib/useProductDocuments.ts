@@ -53,7 +53,11 @@ export function useProductDocuments(companyId: string | null, productId: string 
       content_type: file.type || 'application/octet-stream',
       uploaded_by: user.id,
     })
-    if (insertError) return { error: insertError.message }
+    if (insertError) {
+      // The record failed, so the file would be orphaned: take it back out.
+      await supabase.storage.from('product-documents').remove([path])
+      return { error: insertError.message }
+    }
 
     await refresh()
     return { error: null }

@@ -38,3 +38,12 @@ window.addEventListener('regpilot:fill-request', (event) => {
     reply({ ok: false, error: String(err && err.message ? err.message : err) })
   }
 })
+
+// The person signed out of RegPilot: whatever was queued for Montaji is dropped with that sign-in.
+window.addEventListener('regpilot:signed-out', () => {
+  try {
+    if (chrome.runtime && chrome.runtime.id) chrome.runtime.sendMessage({ type: 'CLEAR_FILL_DATA' })
+  } catch (_) {
+    // the extension was reloaded; its storage is cleared on the next start anyway
+  }
+})
