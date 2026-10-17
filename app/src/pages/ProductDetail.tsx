@@ -28,6 +28,7 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [extracting, setExtracting] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
   const [extractError, setExtractError] = useState<string | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
 
@@ -35,6 +36,15 @@ export default function ProductDetail() {
     product?.company_id ?? null,
     id,
   )
+
+  // A running seconds counter while the AI reads the documents, so the wait does not look frozen.
+  useEffect(() => {
+    if (!extracting) return
+    setElapsed(0)
+    const started = Date.now()
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000)
+    return () => clearInterval(timer)
+  }, [extracting])
 
   function loadProduct() {
     if (!id) return
@@ -188,11 +198,17 @@ export default function ProductDetail() {
                 className="w-full rounded-full bg-primary px-[22px] py-[11px] font-text text-[17px] text-on-primary active:scale-95 transition-transform disabled:opacity-60"
               >
                 {extracting
-                  ? 'Reading documents…'
+                  ? `Reading documents… ${elapsed}s`
                   : product.status === 'draft'
                     ? 'Extract with AI'
                     : 'Re-run extraction'}
               </button>
+              {extracting && (
+                <p className="text-center font-text text-[13px] text-ink-muted-48">
+                  This usually takes 20 to 30 seconds. Please keep this page open; the button is
+                  turned off until it finishes so it can't run twice.
+                </p>
+              )}
               {documents.length === 0 && (
                 <p className="text-center font-text text-[13px] text-ink-muted-48">
                   Upload at least one document above to enable extraction.
