@@ -194,11 +194,19 @@ async function extractCore(supabase: any, productId: string, docs: any[]): Promi
   ]
 
   let totalBytes = 0
+  // A missing document would give a complete-looking but wrong result, so any unreadable file stops
+  // the extraction and is named to the user.
+  const unreadable: string[] = []
   for (const doc of docs) {
     const { data: fileBlob, error: downloadError } = await supabase.storage
       .from('product-documents')
       .download(doc.storage_path)
-    if (downloadError || !fileBlob) continue
+    if (downloadError || !fileBlob) {
+      console.error('Could not download document', doc.storage_path, downloadError?.message)
+      unreadable.push(doc.file_name)
+      continue
+    }
+    if (unreadable.length) continue
     totalBytes += fileBlob.size
     if (totalBytes > MAX_TOTAL_BYTES) {
       return json(413, { error: 'These documents are too large to read together (over 40 MB in total). Remove some or use smaller files.' })
@@ -212,6 +220,12 @@ async function extractCore(supabase: any, productId: string, docs: any[]): Promi
         mimeType: doc.content_type || 'application/octet-stream',
         data: toBase64(bytes),
       },
+    })
+  }
+
+  if (unreadable.length) {
+    return json(422, {
+      error: `Could not open ${unreadable.length === 1 ? 'this document' : 'these documents'}: ${unreadable.join(', ')}. Nothing was extracted. Try again, or remove and re-upload ${unreadable.length === 1 ? 'it' : 'them'}.`,
     })
   }
 
