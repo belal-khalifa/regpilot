@@ -1,11 +1,11 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useExtensionStatus } from '../lib/useRegPilotExtension'
 
-// Yellow notice shown only while the browser extension is missing or out of date.
+// Yellow notice on the signed-in home page, shown only while the filling tool (browser extension) is missing or out of date.
 export default function ExtensionBanner() {
   const { state } = useExtensionStatus()
   const { pathname } = useLocation()
-  if ((state !== 'missing' && state !== 'outdated') || pathname === '/extension') return null
+  if ((state !== 'missing' && state !== 'outdated') || pathname !== '/app') return null
 
   return (
     <div
@@ -14,11 +14,11 @@ export default function ExtensionBanner() {
     >
       <span>
         {state === 'missing'
-          ? 'The RegPilot browser extension is not installed, so you cannot fill Montaji yet.'
-          : 'Your RegPilot browser extension is out of date. Update it to keep filling Montaji.'}
+          ? 'To fill the Montaji form from RegPilot you need the RegPilot filling tool, a small add-on for your browser. It is not installed yet.'
+          : 'Your RegPilot filling tool (browser add-on) is out of date. Update it to keep filling Montaji.'}
       </span>
       <Link to="/extension" className="font-semibold underline">
-        {state === 'missing' ? 'Install it' : 'Update it'}
+        {state === 'missing' ? 'Get the filling tool' : 'Update it'}
       </Link>
     </div>
   )

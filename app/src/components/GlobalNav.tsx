@@ -23,7 +23,7 @@ export default function GlobalNav() {
       </Link>
       <div className="flex items-center gap-4">
       <Link to="/extension" className="font-text text-[14px] text-on-dark">
-        Extension
+        Filling tool
       </Link>
       {session ? (
         <button

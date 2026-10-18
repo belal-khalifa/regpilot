@@ -78,9 +78,9 @@ export default function MontajiFillPanel({
       {!installed ? (
         <>
           <p className="font-text text-[14px] leading-[1.47] text-ink-muted-80">
-            The RegPilot browser extension isn't detected in this browser.{' '}
+            The RegPilot filling tool (a browser add-on) isn't installed in this browser.{' '}
             <Link to="/extension" className="text-primary underline">
-              Install it
+              Get the filling tool
             </Link>
             , then come back to this page.
           </p>

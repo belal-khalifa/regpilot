@@ -18,7 +18,7 @@ function StatusCard({
   const styles =
     state === 'ready'
       ? 'border-green-300 bg-green-50 text-green-900'
-      : 'border-amber-300 bg-amber-100 text-amber-900'
+      : 'border-hairline bg-canvas-parchment text-ink'
   const text =
     state === 'ready'
       ? `Installed and up to date (version ${installed}).`
@@ -54,10 +54,10 @@ export default function ExtensionPage() {
       <main className="mx-auto flex max-w-[760px] flex-col gap-10 px-6 py-12">
         <header className="flex flex-col gap-4">
           <h1 className="font-display text-[34px] font-semibold leading-[1.1] text-ink md:text-[44px]">
-            RegPilot browser extension
+            RegPilot filling tool
           </h1>
           <p className="font-text text-[17px] leading-[1.47] text-ink-muted-80">
-            Fills your reviewed product into the Montaji form. You stay signed in to Montaji
+            A small add-on (browser extension) that types your reviewed product into the Montaji form for you. You stay signed in to Montaji
             yourself and press Submit yourself; the extension never sees your Montaji password.
             Works in Chrome, Edge and Brave on a computer.
           </p>
@@ -68,7 +68,7 @@ export default function ExtensionPage() {
               download="regpilot-extension.zip"
               className="rounded-full bg-primary px-[22px] py-[11px] font-text text-[17px] text-on-primary active:scale-95 transition-transform"
             >
-              Download extension
+              Download filling tool
             </a>
             <span className="font-text text-[14px] text-ink-muted-48">
               Version {latestVersion} · zip file

@@ -81,7 +81,7 @@ export default function Landing() {
             your Montaji password, and never submits on your behalf.
           </p>
           <Link to="/extension" className="font-text text-[17px] text-primary underline">
-            Get the extension
+            Get the filling tool
           </Link>
         </div>
       </section>
