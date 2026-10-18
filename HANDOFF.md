@@ -42,6 +42,7 @@ extraction confidence is high enough. Do not build it without asking.
 | Database, login, storage | Supabase | Auth: Google, Microsoft, email+password. Postgres with Row Level Security. Storage bucket `product-documents`. `products.seq_no` is a per-company number assigned by a trigger. |
 | AI extraction | `supabase/functions/extract-product/` (Deno Edge Function) | Reads the product's files with the **caller's token** (RLS decides access, no service key). Asks `gemini-flash-latest` and `gemini-flash-lite-latest` at once, first good answer wins, thinking off. Secret `GEMINI_API_KEY` is a Supabase secret. About 20-30 s per product. |
 | Chrome extension | `extension/` (Manifest V3) | Runs on the website and on Montaji. Never presses Next, Save Draft, Cancel, Submit, Delete outside its own flows; never ticks the declaration; never handles Montaji credentials. |
+| Filling tool download page | `/extension` in `app/` (`app/src/pages/ExtensionPage.tsx`) | Linked as "Filling tool" in the nav, on the landing page and in the Fill on Montaji panel. Download button plus Install / Update / Uninstall steps. The zip is built from `extension/` by `app/vite-plugins/extensionPackage.ts` on every `npm run dev` / `build` into the gitignored `app/public/downloads/`; never commit it. |
 | QA | `qa/RegPilot-QA-Test-Cases.xlsx` | 181 test cases, document pack, data audit, known limits. |
 
 Cloudflare environment variables (names only): `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`.
@@ -84,6 +85,19 @@ URL (`https://regpilot-app.pages.dev`) and redirect URLs (`.../**` and `http://l
 - Documents travel with "Send to extension" and are uploaded to Montaji only after the person
   confirms in the panel.
 
+**Filling tool (extension) distribution and detection:** the extension announces itself and its
+version on the website (`data-regpilot-extension` and `data-regpilot-extension-version` on `<html>`,
+set by `extension/content-scripts/regpilot-bridge.js`). `useExtensionStatus` in
+`app/src/lib/useRegPilotExtension.ts` turns that into `checking | missing | outdated | ready`: it waits
+2 s before saying missing, re-checks every 1.5 s and on focus, and treats a build with no version as
+outdated. The yellow banner (`ExtensionBanner.tsx`) shows on the signed-in home page (`/app`) only,
+and only when the state is missing or outdated. The "latest version" is `version` in
+`extension/manifest.json`, injected at build as `__EXTENSION_VERSION__`. **Bump that version whenever
+the extension changes**, otherwise testers are never told to update. Chrome does not auto-update
+unpacked extensions, so testers update by downloading the zip again and pressing reload on
+`chrome://extensions`. Chrome, Edge and Brave only; Safari would need an Xcode-built, signed app
+(Apple Developer account) and is not planned.
+
 ## 4. Current state
 
 **Built and working (verified by the owner on real documents):** sign-in, companies, instant
@@ -110,7 +124,7 @@ pressed twice on the same variant (see the QA workbook "record what happens" cas
 4. Move Gemini to a paid tier before real client documents are processed (free-tier content may be
    used by Google).
 5. Supabase free plan pauses an idle project; consider Pro before client demos.
-6. Publish the extension to the Chrome Web Store (currently "load unpacked", developer mode).
+6. Publish the extension to the Chrome Web Store (currently "load unpacked" from the `/extension` download page, developer mode). An unlisted listing would give one-click install and auto-update; the page and banner would then need rewording.
 7. Taxonomy for Detergents, Biocides, Health Supplements: waiting on the owner's master sheet
    (move them out of `MONTAJI_PENDING_GROUPS`; run the sync script; redeploy the function).
 8. Product Image upload category (optional on Montaji, later). Laboratory Test Report is ignored.
