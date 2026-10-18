@@ -69,6 +69,7 @@ export function requestMontajiFill(
 const EXTENSION_VERSION_ATTR = 'data-regpilot-extension-version'
 // The extension's script can run a moment after the page does, so "not found" is only declared after this.
 const DETECT_GRACE_MS = 2000
+const POLL_MS = 1500
 
 export const LATEST_EXTENSION_VERSION: string = __EXTENSION_VERSION__
 export const EXTENSION_DOWNLOAD_URL = '/downloads/regpilot-extension.zip'
@@ -97,11 +98,24 @@ export function useExtensionStatus() {
   const [gaveUp, setGaveUp] = useState(false)
 
   useEffect(() => {
-    const update = () => setFound(readExtension())
+    // Only replace the state when something changed, so polling does not re-render the page.
+    const update = () =>
+      setFound((prev) => {
+        const next = readExtension()
+        return prev?.version === next?.version && Boolean(prev) === Boolean(next) ? prev : next
+      })
     window.addEventListener('regpilot:extension-ready', update)
+    window.addEventListener('focus', update)
+    document.addEventListener('visibilitychange', update)
+    // The extension can be installed while this page is open, and its announcement can be missed,
+    // so keep looking: the status then turns green on its own, without a reload or a trip to another page.
+    const poll = setInterval(update, POLL_MS)
     const timer = setTimeout(() => setGaveUp(true), DETECT_GRACE_MS)
     return () => {
       window.removeEventListener('regpilot:extension-ready', update)
+      window.removeEventListener('focus', update)
+      document.removeEventListener('visibilitychange', update)
+      clearInterval(poll)
       clearTimeout(timer)
     }
   }, [])
