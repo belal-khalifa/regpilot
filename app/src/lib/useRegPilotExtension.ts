@@ -65,3 +65,51 @@ export function requestMontajiFill(
     )
   })
 }
+
+const EXTENSION_VERSION_ATTR = 'data-regpilot-extension-version'
+// The extension's script can run a moment after the page does, so "not found" is only declared after this.
+const DETECT_GRACE_MS = 2000
+
+export const LATEST_EXTENSION_VERSION: string = __EXTENSION_VERSION__
+export const EXTENSION_DOWNLOAD_URL = '/downloads/regpilot-extension.zip'
+
+export type ExtensionState = 'checking' | 'missing' | 'outdated' | 'ready'
+
+function isOlder(installed: string, latest: string) {
+  const a = installed.split('.').map(Number)
+  const b = latest.split('.').map(Number)
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] || 0) - (b[i] || 0)
+    if (diff !== 0) return diff < 0
+  }
+  return false
+}
+
+function readExtension() {
+  const root = document.documentElement
+  if (root.getAttribute(EXTENSION_READY_ATTR) !== 'installed') return null
+  // Builds from before versions were announced carry no version, and are by definition old.
+  return { version: root.getAttribute(EXTENSION_VERSION_ATTR) }
+}
+
+export function useExtensionStatus() {
+  const [found, setFound] = useState(readExtension)
+  const [gaveUp, setGaveUp] = useState(false)
+
+  useEffect(() => {
+    const update = () => setFound(readExtension())
+    window.addEventListener('regpilot:extension-ready', update)
+    const timer = setTimeout(() => setGaveUp(true), DETECT_GRACE_MS)
+    return () => {
+      window.removeEventListener('regpilot:extension-ready', update)
+      clearTimeout(timer)
+    }
+  }, [])
+
+  const installedVersion = found?.version ?? null
+  let state: ExtensionState
+  if (!found) state = gaveUp ? 'missing' : 'checking'
+  else if (!installedVersion || isOlder(installedVersion, LATEST_EXTENSION_VERSION)) state = 'outdated'
+  else state = 'ready'
+  return { state, installedVersion, latestVersion: LATEST_EXTENSION_VERSION }
+}

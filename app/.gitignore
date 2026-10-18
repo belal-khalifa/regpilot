@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# built from ../extension by vite-plugins/extensionPackage.ts
+public/downloads
