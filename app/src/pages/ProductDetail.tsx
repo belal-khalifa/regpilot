@@ -132,10 +132,16 @@ export default function ProductDetail() {
       } else {
         setExtractError(body.error)
       }
-    } catch (err) {
+    } catch {
+      // The connection dropped, often because a phone locked or the person switched apps. The reading
+      // carries on on the server, so look again shortly instead of reporting a hard failure.
       setExtractError(
-        `Could not reach the extraction service (${err instanceof Error ? err.message : 'network error'}).`,
+        'The connection dropped while the documents were being read (this happens if the phone locks or you switch apps). The reading may still finish: this page checks again in a minute.',
       )
+      setTimeout(() => {
+        loadProduct()
+        refreshDocuments()
+      }, 60_000)
     }
     setExtracting(false)
   }

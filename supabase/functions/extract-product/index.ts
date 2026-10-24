@@ -372,6 +372,7 @@ async function extractCore(supabase: any, productId: string, docs: any[]): Promi
     ).values(),
   ]
   if (docs.some((d) => d.doc_type === 'unsorted') && products.length > 1) {
+    console.log('Refused: documents cover several products', JSON.stringify(products))
     return json(422, {
       code: 'multiple_products',
       products,
