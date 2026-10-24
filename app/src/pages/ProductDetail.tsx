@@ -62,28 +62,27 @@ export default function ProductDetail() {
 
   useEffect(loadProduct, [id])
 
-  // Uploads a drop one file at a time (unsorted), then reads a new product's documents straight away.
+  // Uploads a drop one file at a time, unsorted. Reading starts only when the person presses the button,
+  // so they can add more documents for the same product first.
   async function handleDroppedFiles(files: File[], onProgress: (done: number) => void) {
-    const added: ProductDocument[] = []
+    let uploaded = 0
     let failure: string | null = null
     for (const file of files) {
-      const { error, document } = await uploadDocument('unsorted', file, { skipRefresh: true })
+      const { error } = await uploadDocument('unsorted', file, { skipRefresh: true })
       if (error) {
         failure = `Could not upload ${file.name}: ${error}`
         break
       }
-      if (document) added.push(document)
-      onProgress(added.length)
+      uploaded += 1
+      onProgress(uploaded)
     }
     await refreshDocuments()
-    if (failure) return { error: failure }
-    if (added.length && product?.status === 'draft') await handleExtract({ dropped: added })
-    return { error: null }
+    return { error: failure, uploaded }
   }
 
-  async function handleExtract(options?: { dropped?: ProductDocument[] }) {
+  async function handleExtract() {
     if (!id) return
-    if (!options?.dropped && product && product.status !== 'draft') {
+    if (product && product.status !== 'draft') {
       const proceed = window.confirm(
         'This product already has extracted or edited data. Re-running extraction will overwrite it with a fresh AI read of the current documents. Continue?',
       )
@@ -116,14 +115,13 @@ export default function ProductDetail() {
         // not JSON: a gateway or timeout page
       }
       if (body.code === 'multiple_products') {
-        // One product per drop: a drop that covers several is turned away as a whole.
-        if (options?.dropped?.length) {
-          for (const doc of options.dropped) await deleteDocument(doc, { skipRefresh: true })
-          await refreshDocuments()
-          setExtractError(`${body.error} The files you just added were removed.`)
-        } else {
-          setExtractError(body.error ?? 'These documents cover more than one product.')
-        }
+        // One product per upload: documents covering several products are turned away as a whole.
+        const dropped = documents.filter((d: ProductDocument) => d.doc_type === 'unsorted')
+        for (const doc of dropped) await deleteDocument(doc, { skipRefresh: true })
+        await refreshDocuments()
+        setExtractError(
+          `${body.error ?? 'These documents cover more than one product.'} The documents were removed, so you can add them again one product at a time.`,
+        )
       } else if (!res.ok) {
         setExtractError(
           body.error ||
@@ -200,8 +198,8 @@ export default function ProductDetail() {
 
               {product.status === 'draft' && (
                 <p className="font-text text-[14px] leading-[1.47] text-ink-muted-80">
-                  Drop the product’s documents below. They are read with AI straight away; the
-                  product name and brand come from the documents.
+                  Add the product’s documents below, then press Read documents with AI. The product
+                  name and brand come from the documents.
                 </p>
               )}
 
@@ -223,13 +221,13 @@ export default function ProductDetail() {
                 {extracting
                   ? `Reading documents… ${elapsed}s`
                   : product.status === 'draft'
-                    ? 'Extract with AI'
+                    ? 'Read documents with AI'
                     : 'Re-run extraction'}
               </button>
               {extracting && (
                 <p className="text-center font-text text-[13px] text-ink-muted-48">
-                  This usually takes 20 to 30 seconds. Please keep this page open; the button is
-                  turned off until it finishes so it can't run twice.
+                  Please keep this page open; the button is turned off until it finishes so it
+                  can't run twice.
                 </p>
               )}
               {documents.length === 0 && (

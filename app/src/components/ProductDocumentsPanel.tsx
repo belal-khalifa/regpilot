@@ -25,7 +25,7 @@ export default function ProductDocumentsPanel({
   onFiles: (
     files: File[],
     onProgress: (done: number) => void,
-  ) => Promise<{ error: string | null }>
+  ) => Promise<{ error: string | null; uploaded: number }>
   onDelete: (doc: ProductDocument) => Promise<{ error: string | null }>
 }) {
   const filesRef = useRef<HTMLInputElement>(null)
@@ -34,10 +34,12 @@ export default function ProductDocumentsPanel({
   const [busy, setBusy] = useState<string | null>(null)
   const [skipped, setSkipped] = useState<SkippedFile[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   async function handle(input: File[]) {
     if (input.length === 0 || busy || disabled) return
     setError(null)
+    setNotice(null)
     setSkipped([])
     setBusy('Opening files…')
     const { files, skipped } = await expandDrop(
@@ -51,10 +53,15 @@ export default function ProductDocumentsPanel({
       return
     }
     setBusy(`Uploading 0 of ${files.length}…`)
-    const { error } = await onFiles(files, (done) =>
+    const { error, uploaded } = await onFiles(files, (done) =>
       setBusy(`Uploading ${done} of ${files.length}…`),
     )
     if (error) setError(error)
+    if (uploaded > 0) {
+      setNotice(
+        `${uploaded === 1 ? '1 document' : `${uploaded} documents`} uploaded. Add more documents for this same product, or press Read documents with AI below to start.`,
+      )
+    }
     setBusy(null)
   }
 
@@ -132,6 +139,14 @@ export default function ProductDocumentsPanel({
         />
       </div>
 
+      {notice && (
+        <p
+          role="status"
+          className="rounded-sm bg-status-approved/10 px-4 py-3 font-text text-[14px] leading-[1.47] text-status-approved"
+        >
+          {notice}
+        </p>
+      )}
       {error && <p className="font-text text-[13px] text-status-rejected">{error}</p>}
       {skipped.length > 0 && (
         <div className="rounded-sm bg-canvas-parchment px-4 py-3">

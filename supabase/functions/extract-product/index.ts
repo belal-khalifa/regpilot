@@ -19,8 +19,8 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') as string
 // The newest flash model is sometimes overloaded (503); the lite model answers well too. Both are
 // asked at once and the first good answer wins.
 const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest']
-// Supabase allows several minutes per request; this stays well inside it.
-const HARD_LIMIT_MS = 110_000
+// Supabase stops a function after 150 s; this leaves time to answer before that.
+const HARD_LIMIT_MS = 140_000
 // Abuse and cost controls (the database also caps files at 15 MB each and 20 per product).
 const MAX_TOTAL_BYTES = 40 * 1024 * 1024
 const MAX_RUNS_PER_HOUR = 20
@@ -283,13 +283,19 @@ async function extractCore(supabase: any, productId: string, docs: any[]): Promi
     let thinkingOff = true
     let lastReason = `${model}: no answer`
     while (!signal.aborted) {
+      const askedAt = Date.now()
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: buildBody(thinkingOff), signal },
       )
-      if (res.ok) return (await res.json()) as Record<string, unknown>
+      if (res.ok) {
+        const answer = (await res.json()) as Record<string, unknown>
+        // Timing and token use in the logs, to see where a slow read spends its time.
+        console.log('Gemini answered', model, `thinking ${thinkingOff ? 'off' : 'on'}`, `${Date.now() - askedAt} ms`, JSON.stringify(answer.usageMetadata ?? {}))
+        return answer
+      }
       const text = (await res.text()).slice(0, 300)
-      lastReason = `${model} ${res.status}: ${text}`
+      lastReason = `${model} ${res.status} after ${Date.now() - askedAt} ms: ${text}`
       errors.push(lastReason)
       console.error('Gemini attempt failed', lastReason)
       // Some models reject the "no thinking" setting with a vague 400; ask again without it.
