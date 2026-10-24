@@ -2,23 +2,31 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import GlobalNav from '../components/GlobalNav'
 import StatusSelect from '../components/StatusSelect'
-import DocumentUploadSection from '../components/DocumentUploadSection'
+import ProductDocumentsPanel from '../components/ProductDocumentsPanel'
 import ExtractionReviewForm from '../components/ExtractionReviewForm'
 import MontajiFillPanel from '../components/MontajiFillPanel'
 import { supabase } from '../lib/supabase'
-import { documentWarnings } from '../lib/montajiFields'
+import { documentWarnings as montajiDocumentWarnings } from '../lib/montajiFields'
 import { useProductDocuments } from '../lib/useProductDocuments'
-import type { DocumentType, ExtractedProductData, Product, ProductStatus } from '../lib/types'
-
-const DOC_TYPES: DocumentType[] = [
-  'formula_ingredient_list',
-  'certificate_free_sale',
-  'label_artwork',
-]
+import type { ExtractedProductData, Product, ProductStatus } from '../lib/types'
 
 // Extraction runs as a Supabase Edge Function on the same project as the database.
 const EXTRACT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-product`
 const PUBLIC_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
+
+// The red box above the review form: the existing document checks plus "these documents seem to be
+// about more than one product", which warns rather than refuses (a certificate listing a brand's whole
+// range made the AI count several products when there was one).
+function documentWarnings(data: ExtractedProductData): string[] {
+  const warnings = montajiDocumentWarnings(data)
+  const products = data.products_found ?? []
+  if (products.length > 1) {
+    warnings.push(
+      `These documents seem to be about more than one product: ${products.join('; ')}. Each product needs its own page in RegPilot. If they really are one product, you can ignore this.`,
+    )
+  }
+  return warnings
+}
 
 const FILLABLE_STATUSES: ProductStatus[] = ['ready_to_fill', 'submitted', 'approved', 'rejected']
 
@@ -32,7 +40,12 @@ export default function ProductDetail() {
   const [extractError, setExtractError] = useState<string | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
 
-  const { documents, uploadDocument, deleteDocument } = useProductDocuments(
+  const {
+    documents,
+    refresh: refreshDocuments,
+    uploadDocument,
+    deleteDocument,
+  } = useProductDocuments(
     product?.company_id ?? null,
     id,
   )
@@ -62,6 +75,24 @@ export default function ProductDetail() {
   }
 
   useEffect(loadProduct, [id])
+
+  // Uploads a drop one file at a time, unsorted. Reading starts only when the person presses the button,
+  // so they can add more documents for the same product first.
+  async function handleDroppedFiles(files: File[], onProgress: (done: number) => void) {
+    let uploaded = 0
+    let failure: string | null = null
+    for (const file of files) {
+      const { error } = await uploadDocument('unsorted', file, { skipRefresh: true })
+      if (error) {
+        failure = `Could not upload ${file.name}: ${error}`
+        break
+      }
+      uploaded += 1
+      onProgress(uploaded)
+    }
+    await refreshDocuments()
+    return { error: failure, uploaded }
+  }
 
   async function handleExtract() {
     if (!id) return
@@ -107,10 +138,16 @@ export default function ProductDetail() {
       } else {
         setExtractError(body.error)
       }
-    } catch (err) {
+    } catch {
+      // The connection dropped, often because a phone locked or the person switched apps. The reading
+      // carries on on the server, so look again shortly instead of reporting a hard failure.
       setExtractError(
-        `Could not reach the extraction service (${err instanceof Error ? err.message : 'network error'}).`,
+        'The connection dropped while the documents were being read (this happens if the phone locks or you switch apps). The reading may still finish: this page checks again in a minute.',
       )
+      setTimeout(() => {
+        loadProduct()
+        refreshDocuments()
+      }, 60_000)
     }
     setExtracting(false)
   }
@@ -173,45 +210,41 @@ export default function ProductDetail() {
 
               {product.status === 'draft' && (
                 <p className="font-text text-[14px] leading-[1.47] text-ink-muted-80">
-                  Upload the documents below, then press Extract with AI. The product name and
-                  brand are read from the documents.
+                  Add the product’s documents below, then press Read documents with AI. The product
+                  name and brand come from the documents.
                 </p>
               )}
 
-              <div className="flex flex-col gap-4">
-                <h2 className="font-display text-[18px] font-semibold text-ink">Documents</h2>
-                {DOC_TYPES.map((docType) => (
-                  <DocumentUploadSection
-                    key={docType}
-                    docType={docType}
-                    documents={documents.filter((d) => d.doc_type === docType)}
-                    onUpload={uploadDocument}
-                    onDelete={deleteDocument}
-                  />
-                ))}
-              </div>
+              <ProductDocumentsPanel
+                documents={documents}
+                data={extractedData ?? {}}
+                sorted={product.status !== 'draft'}
+                disabled={extracting}
+                onFiles={handleDroppedFiles}
+                onDelete={(doc) => deleteDocument(doc)}
+              />
 
               <button
                 type="button"
-                onClick={handleExtract}
+                onClick={() => handleExtract()}
                 disabled={extracting || documents.length === 0}
                 className="w-full rounded-full bg-primary px-[22px] py-[11px] font-text text-[17px] text-on-primary active:scale-95 transition-transform disabled:opacity-60"
               >
                 {extracting
                   ? `Reading documents… ${elapsed}s`
                   : product.status === 'draft'
-                    ? 'Extract with AI'
+                    ? 'Read documents with AI'
                     : 'Re-run extraction'}
               </button>
               {extracting && (
                 <p className="text-center font-text text-[13px] text-ink-muted-48">
-                  This usually takes 20 to 30 seconds. Please keep this page open; the button is
-                  turned off until it finishes so it can't run twice.
+                  Please keep this page open; the button is turned off until it finishes so it
+                  can't run twice.
                 </p>
               )}
               {documents.length === 0 && (
                 <p className="text-center font-text text-[13px] text-ink-muted-48">
-                  Upload at least one document above to enable extraction.
+                  Add the product’s documents above to read them.
                 </p>
               )}
               {extractError && (

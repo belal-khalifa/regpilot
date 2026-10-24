@@ -19,8 +19,8 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') as string
 // The newest flash model is sometimes overloaded (503); the lite model answers well too. Both are
 // asked at once and the first good answer wins.
 const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest']
-// Supabase allows several minutes per request; this stays well inside it.
-const HARD_LIMIT_MS = 110_000
+// Supabase stops a function after 150 s; this leaves time to answer before that.
+const HARD_LIMIT_MS = 140_000
 // Abuse and cost controls (the database also caps files at 15 MB each and 20 per product).
 const MAX_TOTAL_BYTES = 40 * 1024 * 1024
 const MAX_RUNS_PER_HOUR = 20
@@ -47,7 +47,16 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   formula_ingredient_list: 'Formula / ingredient list',
   certificate_free_sale: 'Certificate of Free Sale / manufacturer docs',
   label_artwork: 'Label artwork',
+  unsorted: 'not labelled (dropped with the others; work out what it is)',
 }
+const DOCUMENT_KINDS = [
+  'formula',
+  'certificate_free_sale',
+  'gmp_certificate',
+  'label_artwork',
+  'other_supporting',
+  'unrelated',
+]
 
 const TAXONOMY_FOR_PROMPT = Object.entries(MONTAJI_TAXONOMY)
   .map(([group, cats]) => {
@@ -85,13 +94,20 @@ SHELF LIFE AND DATES (leave out anything you cannot see on the documents)
 - has_period_after_opening: true only if a period-after-opening symbol (the open-jar icon with a number of months) is shown.
 
 CERTIFICATE CHECK
-Each document is introduced by a line saying how the uploader labelled it. If one is labelled "Certificate of Free Sale / manufacturer docs", look at what that certificate covers:
+Each document is introduced by a line saying how the uploader labelled it. If one is labelled "Certificate of Free Sale / manufacturer docs", or you sorted it as a Certificate of Free Sale or GMP certificate, look at what that certificate covers:
 - certificate_product_match: "yes" if the certificate names this product, "no" if it does not, "not_applicable" if the document is a GMP certificate (it covers a manufacturing site, not products), "no_certificate" if no such document was provided. A close match is fine: the certificate may use a shorter or slightly different wording than the label (for example "Gatsby Styling Gel Wet & Hard" for "Gatsby Styling Gel Wet and Hard Super Hard"), and a product listed with its brand or among many other products still counts. Different products from the same brand do NOT count.
 - certificate_matched_text: when the answer is "yes", the line from the certificate that names the product, copied as written.
 - certificate_products_listed: up to 5 product names the certificate lists (the first ones if there are more).
 
 DOCUMENT MISMATCH CHECK
 The product is the one on the label artwork. For every OTHER document that names a product (a formula, a certificate of composition, a certificate of analysis, a specification sheet), compare the product it names with the label's product. If a document is clearly about a DIFFERENT product (different product type or name, for example a body scrub when the label is a fragrance mist), add it to document_mismatches with its file name and the product it names. Different wording for the same product does not count. Do not list Certificates of Free Sale (checked separately), GMP certificates, or documents that name no product. Never take ingredients or percentages from a document listed in document_mismatches.
+
+DOCUMENT SORTING
+Documents may be uploaded together without a label. Return "document_inventory" with ONE entry for EVERY attached document, using its file name exactly as given:
+- kind: "formula" (formula, ingredient list, composition or INCI list), "certificate_free_sale" (Certificate of Free Sale), "gmp_certificate" (GMP / ISO 22716 certificate of the factory), "label_artwork" (label, packaging or artwork design), "other_supporting" (any other document about this product, such as a certificate of analysis, specification or safety report), or "unrelated" (nothing to do with registering this product, for example an invoice, a photo of something else or a blank page).
+- product_named: the product the document names, if it names one.
+Never take any data from a document you sorted as "unrelated".
+Return "products_found": the distinct products that the label artwork, formula and other product documents are about, one name each. Count a product once even when documents word its name differently. Shades, scents, flavours and sizes of one product are variants of ONE product, not separate products. NEVER take names from a Certificate of Free Sale or GMP certificate: a certificate often lists a brand's whole range, and those other products are not part of this upload.
 
 MONTAJI CLASSIFICATION
 Choose montaji_group, montaji_category and montaji_sub_category from EXACTLY these valid combinations (group, then its categories):
@@ -139,6 +155,19 @@ const EXTRACTION_SCHEMA = {
         required: ['file_name', 'product_named'],
       },
     },
+    document_inventory: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          file_name: { type: 'STRING' },
+          kind: { type: 'STRING', format: 'enum', enum: DOCUMENT_KINDS },
+          product_named: { type: 'STRING' },
+        },
+        required: ['file_name', 'kind'],
+      },
+    },
+    products_found: { type: 'ARRAY', items: { type: 'STRING' } },
     variants: {
       type: 'ARRAY',
       items: {
@@ -254,13 +283,19 @@ async function extractCore(supabase: any, productId: string, docs: any[]): Promi
     let thinkingOff = true
     let lastReason = `${model}: no answer`
     while (!signal.aborted) {
+      const askedAt = Date.now()
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: buildBody(thinkingOff), signal },
       )
-      if (res.ok) return (await res.json()) as Record<string, unknown>
+      if (res.ok) {
+        const answer = (await res.json()) as Record<string, unknown>
+        // Timing and token use in the logs, to see where a slow read spends its time.
+        console.log('Gemini answered', model, `thinking ${thinkingOff ? 'off' : 'on'}`, `${Date.now() - askedAt} ms`, JSON.stringify(answer.usageMetadata ?? {}))
+        return answer
+      }
       const text = (await res.text()).slice(0, 300)
-      lastReason = `${model} ${res.status}: ${text}`
+      lastReason = `${model} ${res.status} after ${Date.now() - askedAt} ms: ${text}`
       errors.push(lastReason)
       console.error('Gemini attempt failed', lastReason)
       // Some models reject the "no thinking" setting with a vague 400; ask again without it.
