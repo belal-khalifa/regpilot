@@ -2,19 +2,13 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import GlobalNav from '../components/GlobalNav'
 import StatusSelect from '../components/StatusSelect'
-import DocumentUploadSection from '../components/DocumentUploadSection'
+import ProductDocumentsPanel from '../components/ProductDocumentsPanel'
 import ExtractionReviewForm from '../components/ExtractionReviewForm'
 import MontajiFillPanel from '../components/MontajiFillPanel'
 import { supabase } from '../lib/supabase'
 import { documentWarnings } from '../lib/montajiFields'
 import { useProductDocuments } from '../lib/useProductDocuments'
-import type { DocumentType, ExtractedProductData, Product, ProductStatus } from '../lib/types'
-
-const DOC_TYPES: DocumentType[] = [
-  'formula_ingredient_list',
-  'certificate_free_sale',
-  'label_artwork',
-]
+import type { ExtractedProductData, Product, ProductDocument, ProductStatus } from '../lib/types'
 
 // Extraction runs as a Supabase Edge Function on the same project as the database.
 const EXTRACT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-product`
@@ -32,7 +26,12 @@ export default function ProductDetail() {
   const [extractError, setExtractError] = useState<string | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
 
-  const { documents, uploadDocument, deleteDocument } = useProductDocuments(
+  const {
+    documents,
+    refresh: refreshDocuments,
+    uploadDocument,
+    deleteDocument,
+  } = useProductDocuments(
     product?.company_id ?? null,
     id,
   )
@@ -63,9 +62,28 @@ export default function ProductDetail() {
 
   useEffect(loadProduct, [id])
 
-  async function handleExtract() {
+  // Uploads a drop one file at a time (unsorted), then reads a new product's documents straight away.
+  async function handleDroppedFiles(files: File[], onProgress: (done: number) => void) {
+    const added: ProductDocument[] = []
+    let failure: string | null = null
+    for (const file of files) {
+      const { error, document } = await uploadDocument('unsorted', file, { skipRefresh: true })
+      if (error) {
+        failure = `Could not upload ${file.name}: ${error}`
+        break
+      }
+      if (document) added.push(document)
+      onProgress(added.length)
+    }
+    await refreshDocuments()
+    if (failure) return { error: failure }
+    if (added.length && product?.status === 'draft') await handleExtract({ dropped: added })
+    return { error: null }
+  }
+
+  async function handleExtract(options?: { dropped?: ProductDocument[] }) {
     if (!id) return
-    if (product && product.status !== 'draft') {
+    if (!options?.dropped && product && product.status !== 'draft') {
       const proceed = window.confirm(
         'This product already has extracted or edited data. Re-running extraction will overwrite it with a fresh AI read of the current documents. Continue?',
       )
@@ -91,13 +109,22 @@ export default function ProductDetail() {
         body: JSON.stringify({ productId: id }),
       })
       const text = await res.text()
-      let body: { error?: string } = {}
+      let body: { error?: string; code?: string } = {}
       try {
         body = JSON.parse(text)
       } catch {
         // not JSON: a gateway or timeout page
       }
-      if (!res.ok) {
+      if (body.code === 'multiple_products') {
+        // One product per drop: a drop that covers several is turned away as a whole.
+        if (options?.dropped?.length) {
+          for (const doc of options.dropped) await deleteDocument(doc, { skipRefresh: true })
+          await refreshDocuments()
+          setExtractError(`${body.error} The files you just added were removed.`)
+        } else {
+          setExtractError(body.error ?? 'These documents cover more than one product.')
+        }
+      } else if (!res.ok) {
         setExtractError(
           body.error ||
             `The extraction service answered with an error (HTTP ${res.status}). ${text.replace(/<[^>]*>/g, ' ').trim().slice(0, 160)}`,
@@ -173,27 +200,23 @@ export default function ProductDetail() {
 
               {product.status === 'draft' && (
                 <p className="font-text text-[14px] leading-[1.47] text-ink-muted-80">
-                  Upload the documents below, then press Extract with AI. The product name and
-                  brand are read from the documents.
+                  Drop the product’s documents below. They are read with AI straight away; the
+                  product name and brand come from the documents.
                 </p>
               )}
 
-              <div className="flex flex-col gap-4">
-                <h2 className="font-display text-[18px] font-semibold text-ink">Documents</h2>
-                {DOC_TYPES.map((docType) => (
-                  <DocumentUploadSection
-                    key={docType}
-                    docType={docType}
-                    documents={documents.filter((d) => d.doc_type === docType)}
-                    onUpload={uploadDocument}
-                    onDelete={deleteDocument}
-                  />
-                ))}
-              </div>
+              <ProductDocumentsPanel
+                documents={documents}
+                data={extractedData ?? {}}
+                sorted={product.status !== 'draft'}
+                disabled={extracting}
+                onFiles={handleDroppedFiles}
+                onDelete={(doc) => deleteDocument(doc)}
+              />
 
               <button
                 type="button"
-                onClick={handleExtract}
+                onClick={() => handleExtract()}
                 disabled={extracting || documents.length === 0}
                 className="w-full rounded-full bg-primary px-[22px] py-[11px] font-text text-[17px] text-on-primary active:scale-95 transition-transform disabled:opacity-60"
               >
@@ -211,7 +234,7 @@ export default function ProductDetail() {
               )}
               {documents.length === 0 && (
                 <p className="text-center font-text text-[13px] text-ink-muted-48">
-                  Upload at least one document above to enable extraction.
+                  Add the product’s documents above to read them.
                 </p>
               )}
               {extractError && (

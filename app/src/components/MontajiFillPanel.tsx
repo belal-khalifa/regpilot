@@ -7,6 +7,7 @@ import {
   type QueuedFile,
 } from '../lib/useRegPilotExtension'
 import type { ExtractedProductData, ProductDocument } from '../lib/types'
+import { effectiveDocType } from '../lib/documentChecklist'
 
 // Keeps what is held in the extension (and in memory here) to a sensible size.
 const MAX_TOTAL_BYTES = 25 * 1024 * 1024
@@ -45,6 +46,9 @@ export default function MontajiFillPanel({
     const left: string[] = []
     let total = 0
     for (const doc of documents) {
+      // Files the AI sorted as not needed have no place on Montaji, so they are not sent.
+      const docType = effectiveDocType(doc, data.document_inventory)
+      if (docType === 'unsorted') continue
       const { data: blob } = await supabase.storage.from('product-documents').download(doc.storage_path)
       if (!blob || total + blob.size > MAX_TOTAL_BYTES) {
         left.push(doc.file_name)
@@ -53,7 +57,7 @@ export default function MontajiFillPanel({
       total += blob.size
       files.push({
         id: doc.id,
-        docType: doc.doc_type,
+        docType,
         name: doc.file_name,
         type: doc.content_type,
         size: blob.size,

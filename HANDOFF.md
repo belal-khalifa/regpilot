@@ -84,6 +84,13 @@ URL (`https://regpilot-app.pages.dev`) and redirect URLs (`.../**` and `http://l
   a different product than the label.
 - Documents travel with "Send to extension" and are uploaded to Montaji only after the person
   confirms in the panel.
+- One drop for all documents (REG-256): the product page has a single drop area (files, a folder or
+  zip files, unpacked in the browser by `app/src/lib/documentDrop.ts`). Files are stored with
+  `doc_type = 'unsorted'`; extraction returns `document_inventory` (what each file is) and
+  `products_found`. A drop covering more than one product is refused as a whole (function answers
+  422 with `code: 'multiple_products'`, the website removes that drop). The sorted type is never
+  written back to `product_documents`; `effectiveDocType` in `app/src/lib/documentChecklist.ts`
+  derives it from the inventory, and that is what the Filling tool receives.
 
 **Filling tool (extension) distribution and detection:** the extension announces itself and its
 version on the website (`data-regpilot-extension` and `data-regpilot-extension-version` on `<html>`,
