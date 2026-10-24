@@ -146,7 +146,7 @@ export function documentWarnings(data: ReadinessInput): string[] {
   const name = (data.product_name ?? '').trim() || 'this product'
   for (const m of data.document_mismatches ?? []) {
     warnings.push(
-      `"${m.file_name}" seems to be about "${m.product_named}", not "${name}". Its contents were not used. Upload the right document and re-run extraction.`,
+      `"${m.file_name}" seems to be about "${m.product_named}", not "${name}". If it is a different product, remove it, upload the right document and re-run extraction. If it is the same product under another name, you can ignore this.`,
     )
   }
   return warnings
