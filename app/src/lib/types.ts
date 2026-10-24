@@ -116,7 +116,7 @@ export type ExtractedProductData = {
   variants?: ExtractedVariant[]
   // One entry per uploaded file: what it is. Filled for every extraction run.
   document_inventory?: DocumentInventoryEntry[]
-  // The distinct products the documents are about; more than one rejects a dropped bundle.
+  // The distinct products the documents are about; more than one shows a warning.
   products_found?: string[]
   shelf_life?: string
   shelf_life_period_type?: string

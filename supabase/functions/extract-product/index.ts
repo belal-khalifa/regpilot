@@ -107,7 +107,7 @@ Documents may be uploaded together without a label. Return "document_inventory" 
 - kind: "formula" (formula, ingredient list, composition or INCI list), "certificate_free_sale" (Certificate of Free Sale), "gmp_certificate" (GMP / ISO 22716 certificate of the factory), "label_artwork" (label, packaging or artwork design), "other_supporting" (any other document about this product, such as a certificate of analysis, specification or safety report), or "unrelated" (nothing to do with registering this product, for example an invoice, a photo of something else or a blank page).
 - product_named: the product the document names, if it names one.
 Never take any data from a document you sorted as "unrelated".
-Return "products_found": the distinct products these documents are about, one name each. Count a product once even when documents word its name differently. Shades, scents, flavours and sizes of one product are variants of ONE product, not separate products. Leave out documents that name no product (GMP certificates usually do not). A Certificate of Free Sale that lists many products counts only for this product.
+Return "products_found": the distinct products that the label artwork, formula and other product documents are about, one name each. Count a product once even when documents word its name differently. Shades, scents, flavours and sizes of one product are variants of ONE product, not separate products. NEVER take names from a Certificate of Free Sale or GMP certificate: a certificate often lists a brand's whole range, and those other products are not part of this upload.
 
 MONTAJI CLASSIFICATION
 Choose montaji_group, montaji_category and montaji_sub_category from EXACTLY these valid combinations (group, then its categories):
@@ -359,25 +359,6 @@ async function extractCore(supabase: any, productId: string, docs: any[]): Promi
     extracted = postProcess(JSON.parse(rawText))
   } catch {
     return json(502, { error: 'The AI returned an unreadable answer. Please try again.' })
-  }
-
-  // Documents dropped together must be about one product. If they are not, nothing is saved and the
-  // caller is told which products were found (the website then takes the drop back out).
-  const products = [
-    ...new Map(
-      (Array.isArray(extracted.products_found) ? (extracted.products_found as unknown[]) : [])
-        .map((p) => String(p ?? '').trim())
-        .filter(Boolean)
-        .map((p) => [p.toLowerCase(), p] as const),
-    ).values(),
-  ]
-  if (docs.some((d) => d.doc_type === 'unsorted') && products.length > 1) {
-    console.log('Refused: documents cover several products', JSON.stringify(products))
-    return json(422, {
-      code: 'multiple_products',
-      products,
-      error: `These documents cover more than one product (${products.join('; ')}). Please add one product's documents at a time.`,
-    })
   }
 
   const { error: updateError } = await supabase

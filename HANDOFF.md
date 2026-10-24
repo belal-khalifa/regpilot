@@ -87,8 +87,8 @@ URL (`https://regpilot-app.pages.dev`) and redirect URLs (`.../**` and `http://l
 - One drop for all documents (REG-256): the product page has a single drop area (files, a folder or
   zip files, unpacked in the browser by `app/src/lib/documentDrop.ts`). Files are stored with
   `doc_type = 'unsorted'`; extraction returns `document_inventory` (what each file is) and
-  `products_found`. A drop covering more than one product is refused as a whole (function answers
-  422 with `code: 'multiple_products'`, the website removes that drop). The sorted type is never
+  `products_found`. More than one product found shows a warning (it first refused the upload, but a
+  Certificate of Free Sale listing a brand's range caused false refusals). The sorted type is never
   written back to `product_documents`; `effectiveDocType` in `app/src/lib/documentChecklist.ts`
   derives it from the inventory, and that is what the Filling tool receives.
 

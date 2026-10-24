@@ -6,13 +6,27 @@ import ProductDocumentsPanel from '../components/ProductDocumentsPanel'
 import ExtractionReviewForm from '../components/ExtractionReviewForm'
 import MontajiFillPanel from '../components/MontajiFillPanel'
 import { supabase } from '../lib/supabase'
-import { documentWarnings } from '../lib/montajiFields'
+import { documentWarnings as montajiDocumentWarnings } from '../lib/montajiFields'
 import { useProductDocuments } from '../lib/useProductDocuments'
-import type { ExtractedProductData, Product, ProductDocument, ProductStatus } from '../lib/types'
+import type { ExtractedProductData, Product, ProductStatus } from '../lib/types'
 
 // Extraction runs as a Supabase Edge Function on the same project as the database.
 const EXTRACT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-product`
 const PUBLIC_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
+
+// The red box above the review form: the existing document checks plus "these documents seem to be
+// about more than one product", which warns rather than refuses (a certificate listing a brand's whole
+// range made the AI count several products when there was one).
+function documentWarnings(data: ExtractedProductData): string[] {
+  const warnings = montajiDocumentWarnings(data)
+  const products = data.products_found ?? []
+  if (products.length > 1) {
+    warnings.push(
+      `These documents seem to be about more than one product: ${products.join('; ')}. Each product needs its own page in RegPilot. If they really are one product, you can ignore this.`,
+    )
+  }
+  return warnings
+}
 
 const FILLABLE_STATUSES: ProductStatus[] = ['ready_to_fill', 'submitted', 'approved', 'rejected']
 
@@ -108,21 +122,13 @@ export default function ProductDetail() {
         body: JSON.stringify({ productId: id }),
       })
       const text = await res.text()
-      let body: { error?: string; code?: string } = {}
+      let body: { error?: string } = {}
       try {
         body = JSON.parse(text)
       } catch {
         // not JSON: a gateway or timeout page
       }
-      if (body.code === 'multiple_products') {
-        // One product per upload: documents covering several products are turned away as a whole.
-        const dropped = documents.filter((d: ProductDocument) => d.doc_type === 'unsorted')
-        for (const doc of dropped) await deleteDocument(doc, { skipRefresh: true })
-        await refreshDocuments()
-        setExtractError(
-          `${body.error ?? 'These documents cover more than one product.'} The documents were removed, so you can add them again one product at a time.`,
-        )
-      } else if (!res.ok) {
+      if (!res.ok) {
         setExtractError(
           body.error ||
             `The extraction service answered with an error (HTTP ${res.status}). ${text.replace(/<[^>]*>/g, ' ').trim().slice(0, 160)}`,
