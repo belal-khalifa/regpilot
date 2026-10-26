@@ -1,0 +1,65 @@
+name: Reference library update
+
+# Keeps the chatbot's regulations current (REG-276): every Monday 06:00 UAE time it checks for a newer
+# consolidated EU Cosmetics Regulation and for new or changed Dubai Municipality guideline PDFs in the
+# Supabase bucket "reference-documents", loads what changed, and opens an issue for Belal.
+# Needs repository secrets SUPABASE_SERVICE_KEY and GEMINI_API_KEY.
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Reload every source even if unchanged
+        type: boolean
+        default: false
+  # Until this file is on main, a push to the REG-276 branch is the only way to start it.
+  # Remove before merging.
+  push:
+    branches:
+      - claude/project-thread-6lidxc
+    paths:
+      - scripts/references/**
+      - .github/workflows/reference-update.yml
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: reference-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install PDF text tool
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+      - name: Update the reference library
+        env:
+          SUPABASE_URL: https://ilrrluobgaowbooysjwc.supabase.co
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          REPORT_FILE: ${{ github.workspace }}/report.md
+        run: python3 scripts/references/update_references.py ${{ inputs.force && '--force' || '' }}
+      - name: Tell Belal what changed
+        if: success() && hashFiles('report.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" --assignee belal-khalifa \
+            --title "Chatbot regulations updated ($(date -u +%Y-%m-%d))" \
+            --body-file report.md
+      - name: Tell Belal the update failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" --assignee belal-khalifa \
+            --title "Chatbot regulations update failed ($(date -u +%Y-%m-%d))" \
+            --body "The weekly update of the chatbot's regulations failed, so the chatbot keeps using the last good version. Details: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

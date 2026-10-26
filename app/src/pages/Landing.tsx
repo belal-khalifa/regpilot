@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
 import GlobalNav from '../components/GlobalNav'
 import HeroGraphic from '../components/HeroGraphic'
+import PublicChat from '../components/PublicChat'
+import { useSiteSettings, whatsappLink } from '../lib/useSiteSettings'
 
 function PrimaryButton({ to, children }: { to: string; children: React.ReactNode }) {
   return (
@@ -25,6 +27,7 @@ function SecondaryButton({ href, children }: { href: string; children: React.Rea
 }
 
 export default function Landing() {
+  const settings = useSiteSettings()
   return (
     <div>
       <GlobalNav />
@@ -103,12 +106,26 @@ export default function Landing() {
 
       {/* Footer */}
       <footer className="bg-canvas-parchment px-6 py-16">
-        <div className="mx-auto max-w-[980px] text-center">
+        <div className="mx-auto flex max-w-[980px] flex-col items-center gap-3 text-center">
+          {settings && (
+            <p className="font-text text-[14px] leading-[1.43] tracking-[-0.224px] text-ink-muted-80">
+              Contact us:{' '}
+              <a className="text-primary underline" href={`mailto:${settings.contact_email}`}>
+                {settings.contact_email}
+              </a>
+              {' · '}WhatsApp{' '}
+              <a className="text-primary underline" href={whatsappLink(settings.whatsapp_number)} target="_blank" rel="noreferrer">
+                {settings.whatsapp_number}
+              </a>
+            </p>
+          )}
           <p className="font-text text-[12px] leading-[1.0] tracking-[-0.12px] text-ink-muted-48">
             © 2026 RegPilot. Not affiliated with Dubai Municipality.
           </p>
         </div>
       </footer>
+
+      <PublicChat />
     </div>
   )
 }
