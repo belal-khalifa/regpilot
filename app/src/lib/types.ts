@@ -28,12 +28,42 @@ export const PRODUCT_STATUS_LABELS: Record<ProductStatus, string> = {
   rejected: 'Rejected',
 }
 
-export type DocumentType = 'formula_ingredient_list' | 'certificate_free_sale' | 'label_artwork'
+// 'unsorted' is a file dropped without a type; extraction works out what it is (document_inventory).
+export type DocumentType =
+  | 'formula_ingredient_list'
+  | 'certificate_free_sale'
+  | 'label_artwork'
+  | 'unsorted'
 
 export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   formula_ingredient_list: 'Formula / ingredient list',
   certificate_free_sale: 'Certificate of Free Sale / manufacturer docs',
   label_artwork: 'Label artwork',
+  unsorted: 'Not sorted yet',
+}
+
+// What extraction decided each dropped file is.
+export type DocumentKind =
+  | 'formula'
+  | 'certificate_free_sale'
+  | 'gmp_certificate'
+  | 'label_artwork'
+  | 'other_supporting'
+  | 'unrelated'
+
+export const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
+  formula: 'Formula / ingredient list',
+  certificate_free_sale: 'Certificate of Free Sale',
+  gmp_certificate: 'GMP certificate',
+  label_artwork: 'Label artwork',
+  other_supporting: 'Other supporting document',
+  unrelated: 'Not needed (not used)',
+}
+
+export type DocumentInventoryEntry = {
+  file_name: string
+  kind: DocumentKind
+  product_named?: string
 }
 
 export type ProductDocument = {
@@ -84,6 +114,10 @@ export type ExtractedProductData = {
   // Documents (formula, composition, analysis...) that are about a different product than the label.
   document_mismatches?: Array<{ file_name: string; product_named: string }>
   variants?: ExtractedVariant[]
+  // One entry per uploaded file: what it is. Filled for every extraction run.
+  document_inventory?: DocumentInventoryEntry[]
+  // The distinct products the documents are about; more than one shows a warning.
+  products_found?: string[]
   shelf_life?: string
   shelf_life_period_type?: string
   has_production_date?: boolean

@@ -20,7 +20,7 @@ on conflict (id) do update
   set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 -- ---------------------------------------------------------------- types
-create type public.document_type as enum ('formula_ingredient_list', 'certificate_free_sale', 'label_artwork');
+create type public.document_type as enum ('formula_ingredient_list', 'certificate_free_sale', 'label_artwork', 'unsorted');
 create type public.product_status as enum ('draft', 'extracted', 'ready_to_fill', 'submitted', 'approved', 'rejected');
 
 -- ---------------------------------------------------------------- tables
