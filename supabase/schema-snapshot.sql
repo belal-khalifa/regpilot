@@ -104,6 +104,13 @@ alter table public.products enable row level security;
 alter table public.product_documents enable row level security;
 alter table public.extraction_runs enable row level security;
 
+-- Data API access. From 2026-10-30 Supabase no longer grants this automatically to new tables, so a
+-- rebuilt project needs these lines or the website gets "permission denied". The live tables were
+-- created before that date and already have access. Signed-in users only (no anon); the policies
+-- above still decide which rows each person can see or change.
+grant select, insert, update, delete on public.profiles, public.companies, public.company_members,
+  public.products, public.product_documents, public.extraction_runs to authenticated, service_role;
+
 -- ---------------------------------------------------------------- functions and triggers
 create or replace function public.is_company_member(target_company_id uuid) returns boolean
 language sql stable security definer set search_path to 'public' as $$
