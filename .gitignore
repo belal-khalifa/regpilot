@@ -6,3 +6,5 @@ dist/
 
 # real client documents must never be committed
 test-documents/Real*/
+
+__pycache__/
