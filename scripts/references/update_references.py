@@ -45,6 +45,10 @@ BUCKET = 'reference-documents'
 EMBED_MODEL = 'gemini-embedding-001'
 EMBED_DIMENSIONS = 768
 EMBED_BATCH = 50
+# Gemini's free tier embeds at most 30,000 tokens a minute. Stay under it, counting a token as
+# 3 characters (ingredient names and numbers make tokens short).
+EMBED_TOKENS_PER_MINUTE = 20000
+CHARS_PER_TOKEN = 3
 # Passages longer than this are split; the embedding model reads up to about 2,000 tokens.
 MAX_WORDS = 450
 XHTML = '{http://www.w3.org/1999/xhtml}'
@@ -77,7 +81,7 @@ def http(method, url, body=None, headers=None, raw=False, tries=5):
         except urllib.error.HTTPError as err:
             detail = err.read()[:400].decode(errors='replace')
             if err.code in (429, 500, 502, 503, 504) and attempt < tries - 1:
-                wait = 20 * (attempt + 1) if err.code == 429 else 5 * (attempt + 1)
+                wait = 30 * (attempt + 1) if err.code == 429 else 5 * (attempt + 1)
                 print(f'  {err.code} from {url.split("?")[0]}, retrying in {wait} s')
                 time.sleep(wait)
                 continue
@@ -333,9 +337,24 @@ def dm_passages(pdf_bytes, code):
 # ---------------------------------------------------------------- embeddings and loading
 
 def embed(passages):
+    # Batches of up to EMBED_BATCH passages and a minute's token allowance, each followed by a pause
+    # long enough to keep the overall rate under EMBED_TOKENS_PER_MINUTE.
+    max_chars = EMBED_TOKENS_PER_MINUTE * CHARS_PER_TOKEN
+    batches, batch, size = [], [], 0
+    for label, text in passages:
+        chars = len(label) + len(text)
+        if batch and (len(batch) == EMBED_BATCH or size + chars > max_chars):
+            batches.append((batch, size))
+            batch, size = [], 0
+        batch.append((label, text))
+        size += chars
+    if batch:
+        batches.append((batch, size))
+
     vectors = []
-    for i in range(0, len(passages), EMBED_BATCH):
-        batch = passages[i:i + EMBED_BATCH]
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{EMBED_MODEL}:batchEmbedContents?key={GEMINI_KEY}'
+    for batch, size in batches:
+        started = time.monotonic()
         body = {'requests': [{
             'model': f'models/{EMBED_MODEL}',
             'content': {'parts': [{'text': text}]},
@@ -343,11 +362,12 @@ def embed(passages):
             'title': label,
             'outputDimensionality': EMBED_DIMENSIONS,
         } for label, text in batch]}
-        url = f'https://generativelanguage.googleapis.com/v1beta/models/{EMBED_MODEL}:batchEmbedContents?key={GEMINI_KEY}'
         result = http('POST', url, body, tries=8)
         vectors += [e['values'] for e in result['embeddings']]
         print(f'  embedded {len(vectors)}/{len(passages)}')
-        time.sleep(1)  # stay well inside the free tier's per-minute limit
+        pause = size / CHARS_PER_TOKEN / EMBED_TOKENS_PER_MINUTE * 60 - (time.monotonic() - started)
+        if pause > 0:
+            time.sleep(pause)
     return vectors
 
 
