@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import GlobalNav from '../components/GlobalNav'
 import StatusBadge from '../components/StatusBadge'
 import CreateCompanyForm from '../components/CreateCompanyForm'
+import AppChat from '../components/AppChat'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthProvider'
 import { useCompanies } from '../lib/useCompanies'
@@ -57,8 +58,10 @@ export default function AppHome() {
 
   // A new product starts as an empty shell: the documents are uploaded next, and the AI reads the
   // product's name and brand out of them.
-  async function handleNewProduct(companyId: string) {
-    if (!user) return
+  // A drop on the dashboard chat starts a new product too; its page uploads the files and the chat
+  // carries on there.
+  async function handleNewProduct(companyId: string, chatFiles?: File[]): Promise<string | null> {
+    if (!user) return 'Please sign in again.'
     setCreatingProduct(true)
     setCreateError(null)
     const { data, error } = await supabase
@@ -69,10 +72,11 @@ export default function AppHome() {
     setCreatingProduct(false)
     if (error) {
       setCreateError(error.message)
-      return
+      return error.message
     }
     refreshProducts()
-    navigate(`/app/products/${data.id}`)
+    navigate(`/app/products/${data.id}`, chatFiles ? { state: { chatFiles } } : undefined)
+    return null
   }
 
   if (!authLoading && !session) {
@@ -248,6 +252,14 @@ export default function AppHome() {
           </div>
         </div>
       </section>
+      <AppChat
+        key={selectedCompany.id}
+        companyId={selectedCompany.id}
+        onFiles={async (files) => ({
+          error: await handleNewProduct(selectedCompany.id, files),
+          uploaded: 0,
+        })}
+      />
     </div>
   )
 }
