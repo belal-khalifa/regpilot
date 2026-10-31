@@ -14,14 +14,6 @@ on:
         description: Reload every source even if unchanged
         type: boolean
         default: false
-  # Until this file is on main, a push to the REG-276 branch is the only way to start it.
-  # Remove before merging.
-  push:
-    branches:
-      - claude/project-thread-6lidxc
-    paths:
-      - scripts/references/**
-      - .github/workflows/reference-update.yml
 
 permissions:
   contents: read
