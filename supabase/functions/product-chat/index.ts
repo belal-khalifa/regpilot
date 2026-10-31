@@ -3,7 +3,10 @@
 // reference library as the public chatbot (REG-276). It never fills or submits anything: for that it
 // points to the Review and fill button on the product page. Signed-in users only (deploy with
 // "Verify JWT" on). Reads and writes as the user, so a client only ever reaches their own company's
-// products; the service role is used for the daily limit alone.
+// products; the service role is used for the daily limit and the instant-check allowance alone.
+// Modes: a question (default); "summary" after a reading; "check", the instant regulatory check of a
+// product, free within a monthly allowance per company (REG-269); "check_status", how many of this
+// month's checks are used (no AI call).
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') as string
@@ -28,6 +31,7 @@ const json = (status: number, body: unknown) =>
 type ChatMessage = { role: 'user' | 'assistant'; text: string }
 type Chunk = { id: number; label: string; content: string; title: string; version: string; url: string | null }
 type Lang = 'en' | 'ar'
+type Mode = 'question' | 'summary' | 'check'
 
 const ANSWER_SCHEMA = {
   type: 'OBJECT',
@@ -141,12 +145,26 @@ ${read ? `What RegPilot's reading of the documents found (JSON):\n${JSON.stringi
 ${facts.length ? `Checks shown on the product page:\n${facts.map((f) => `- ${f}`).join('\n')}` : ''}`
 }
 
-function buildPrompt(settings: Record<string, string>, chunks: Chunk[], product: string | null, summary: boolean, lang: Lang): string {
+// The month of the allowance, UAE time, as the first day (matches claim_instant_check).
+function allowanceMonth(): { month: string; renews: string } {
+  const [y, m] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit' })
+    .format(new Date())
+    .split('-')
+    .map(Number)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const next = m === 12 ? `${y + 1}-01-01` : `${y}-${pad(m + 1)}-01`
+  return { month: `${y}-${pad(m)}-01`, renews: next }
+}
+
+function buildPrompt(settings: Record<string, string>, chunks: Chunk[], product: string | null, mode: Mode, lang: Lang): string {
   const sources = chunks
     .map((c, i) => `[S${i + 1}] ${c.title}, version ${c.version}. ${c.label}\n${c.content}`)
     .join('\n\n')
-  const task = summary
-    ? `TASK: The client has just had their documents read. Write a short summary in ${lang === 'ar' ? 'Arabic' : 'English'} for a busy regulatory manager, written like a helpful colleague: what the product is (name, brand, type, Montaji category), the useful details found (country of origin, manufacturer, shelf life, number of ingredients and variants), which documents were recognised, and what is missing or needs a closer look (use the checks listed; if there are none, say everything needed was found). Finish with the next step in one sentence: press Review and fill to check the data and fill Montaji, or ask here for an instant check against the rules. A short intro line plus a short list is ideal. Do not repeat disclaimers (the chat already shows one) and do not use the reference passages unless a check needs a rule explained.`
+  const langName = lang === 'ar' ? 'Arabic' : 'English'
+  const task = mode === 'check'
+    ? `TASK: Run RegPilot's instant regulatory check of this product and write it in ${langName}. Go through what the reading found (ingredients and their percentages, label claims, label details such as dates, batch and period after opening, the certificate) against the reference passages, and list for each point either "looks fine" or "possible issue", with the rule and its source. Claims are the most important point. Say plainly when the passages don't cover a point, rather than skipping it. Start with one line giving the overall picture (for example "2 possible issues, the rest looks fine"). Call the result an instant preliminary check: never say the product is approved, will be approved or is guaranteed to pass, and end with one line that RegPilot's experts can confirm it in a full regulatory check (contact us for this).`
+    : mode === 'summary'
+    ? `TASK: The client has just had their documents read. Write a short summary in ${lang === 'ar' ? 'Arabic' : 'English'} for a busy regulatory manager, written like a helpful colleague: what the product is (name, brand, type, Montaji category), the useful details found (country of origin, manufacturer, shelf life, number of ingredients and variants), which documents were recognised, and what is missing or needs a closer look (use the checks listed; if there are none, say everything needed was found). Finish with the next step in one sentence: press Review and fill to check the data and fill Montaji, or press Run instant check below for a free check against the rules. A short intro line plus a short list is ideal. Do not repeat disclaimers (the chat already shows one) and do not use the reference passages unless a check needs a rule explained.`
     : `TASK: Answer the client's last message.`
   return `You are RegPilot's assistant inside the RegPilot app. The client is signed in and is a company registering cosmetic, personal care, fragrance and similar products with Dubai Municipality on Montaji.
 
@@ -158,7 +176,7 @@ Rules:
 1. Reply in the language of the client's last message (Arabic or English). Quote rules faithfully; you may translate a passage, but keep numbers, percentages and names exact.
 2. For every rule you state, name its source in the sentence, e.g. "The DM Technical Guidelines for Cosmetic and Personal Care Products (GU116), section 7.1, require ...". List the passage ids you relied on in used_sources.
 3. Talk freely and helpfully about this client's product: explain what the reading found, which documents are missing, and what a warning means, in plain words. The chat already shows a disclaimer under every answer, so do not add "preliminary" or "please check" caveats to your answers.
-4. When the client asks whether the product meets the rules (instant feedback), give it: go through what the reading found (ingredients and their percentages, label claims, label details such as dates, batch and period after opening, the certificate) against the reference passages, and list for each point either "looks fine" or "possible issue", with the rule and its source. Say plainly when the passages don't cover a point, rather than skipping it. Call the result an instant preliminary check: never say the product is approved, will be approved or is guaranteed to pass, and end with one line that RegPilot's experts can confirm it in a full regulatory check.
+4. Answer questions about a single point fully (one ingredient, one claim, one label detail), with the rule and its source. When the client asks for a check of the whole product (does it meet the rules, is it compliant, check everything), do not run it here: say in one sentence that the Run instant check button in this chat on the product page does that for free (a set number of checks per company each month), and answer any single point they named. Never say the product is approved, will be approved or is guaranteed to pass.
 5. Be as useful as the material allows. Apply a passage sensibly to the question (for example, a rule about what the label must show answers a question about packaging), and give a direct, practical answer first, then its source. If the material covers only part of the question, answer that part and say in one short sentence which part the references don't cover. Only if nothing in the material helps, say you cannot confirm it from RegPilot's references and offer the contact details. Never invent rules, numbers or limits.
 6. You cannot fill, change, submit or save anything. To fill Montaji, the client presses the Review and fill button on the product page and uses the Filling tool; the client always submits on Montaji themselves. Never say RegPilot submits on a client's behalf.
 7. To add documents, the client drops them into this chat or the Documents area of the product page. On the dashboard, a drop starts a new product. One product per drop.
@@ -198,14 +216,16 @@ Deno.serve(async (req) => {
   let companyId: string
   let productId: string | null
   let messages: ChatMessage[]
-  let summary: boolean
+  let mode: Mode
+  let statusOnly: boolean
   let facts: string[]
   let lang: Lang
   try {
     const body = await req.json()
     companyId = String(body?.companyId ?? '')
     productId = body?.productId ? String(body.productId) : null
-    summary = body?.mode === 'summary'
+    mode = body?.mode === 'summary' ? 'summary' : body?.mode === 'check' ? 'check' : 'question'
+    statusOnly = body?.mode === 'check_status'
     lang = body?.lang === 'ar' ? 'ar' : 'en'
     facts = (Array.isArray(body?.facts) ? body.facts : []).map(String).slice(0, 20).map((f: string) => f.slice(0, 600))
     messages = (Array.isArray(body?.messages) ? body.messages : [])
@@ -215,9 +235,12 @@ Deno.serve(async (req) => {
     return json(400, { error: 'Invalid JSON body' })
   }
   if (!companyId) return json(400, { error: 'companyId is required' })
-  if (summary && !productId) return json(400, { error: 'A summary needs a product' })
-  const question = summary ? '' : messages.at(-1)?.role === 'user' ? messages.at(-1)!.text.trim() : ''
-  if (!summary && !question) return json(400, { error: 'Please type a question.' })
+  const summary = mode === 'summary'
+  if (mode !== 'question' && !productId) return json(400, { error: 'This needs a product' })
+  const checkRequest = lang === 'ar' ? 'افحص هذا المنتج فحصاً فورياً مقابل المتطلبات.' : 'Run an instant check of this product against the rules.'
+  const question =
+    mode === 'check' ? checkRequest : summary || statusOnly ? '' : messages.at(-1)?.role === 'user' ? messages.at(-1)!.text.trim() : ''
+  if (mode === 'question' && !statusOnly && !question) return json(400, { error: 'Please type a question.' })
 
   // Row-level security answers these only for the user's own company and its products.
   const { data: company } = await db.from('companies').select('id').eq('id', companyId).maybeSingle()
@@ -230,6 +253,7 @@ Deno.serve(async (req) => {
       .eq('id', productId)
       .maybeSingle()
     if (!p || p.company_id !== companyId) return json(404, { error: 'Product not found or access denied' })
+    if (mode === 'check' && p.status === 'draft') return json(400, { error: 'not_read' })
     const { data: docs } = await db.from('product_documents').select('file_name, doc_type').eq('product_id', productId)
     product = { name: p.name, status: p.status, extracted_data: p.extracted_data, documents: docs ?? [] }
   }
@@ -245,12 +269,30 @@ Deno.serve(async (req) => {
   }
   messages = messages.map((m) => ({ ...m, text: m.text.slice(0, 2000) }))
 
-  const { data: claim, error: claimError } = await admin.rpc('claim_product_chat_question', { p_user: userId })
+  // The free instant-check allowance: checks used this month by the company, out of the limit.
+  const checkLimit = Number(settings.instant_check_monthly_limit ?? 10)
+  const { month, renews } = allowanceMonth()
+  const checksUsed = async () => {
+    const { data } = await admin
+      .from('instant_check_usage')
+      .select('checks')
+      .eq('month', month)
+      .eq('company_id', companyId)
+      .maybeSingle()
+    return Number(data?.checks ?? 0)
+  }
+  if (statusOnly) return json(200, { checks: { used: await checksUsed(), limit: checkLimit, renews } })
+
+  // A check uses the company's monthly allowance; questions and summaries use the daily question limit.
+  const { data: claim, error: claimError } =
+    mode === 'check'
+      ? await admin.rpc('claim_instant_check', { p_company: companyId })
+      : await admin.rpc('claim_product_chat_question', { p_user: userId })
   if (claimError) {
     console.error('claim failed', claimError.message)
     return json(500, { error: 'The assistant is not available right now.' })
   }
-  if (claim !== 'ok') return json(429, { limited: claim })
+  if (claim !== 'ok') return json(429, { limited: claim, checks: { used: checkLimit, limit: checkLimit, renews } })
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), DEADLINE_MS)
@@ -258,11 +300,15 @@ Deno.serve(async (req) => {
     let found: Chunk[] = []
     if (!summary) {
       const terms = productTerms(product)
-      const embedding = await embedQuestion(question + terms.meaning, controller.signal)
+      const searchText =
+        mode === 'check'
+          ? `Labelling requirements, permitted claims, restricted and prohibited ingredients and their limits${terms.meaning}`
+          : question + terms.meaning
+      const embedding = await embedQuestion(searchText, controller.signal)
       const { data: chunks, error: matchError } = await db.rpc('match_reference_chunks', {
         query_embedding: `[${embedding.join(',')}]`,
-        query_text: [exactTerms(question), terms.words].filter(Boolean).join(' or '),
-        match_count: product ? MATCH_COUNT + 4 : MATCH_COUNT,
+        query_text: [mode === 'check' ? '' : exactTerms(question), terms.words].filter(Boolean).join(' or '),
+        match_count: mode === 'check' ? MATCH_COUNT * 2 : product ? MATCH_COUNT + 4 : MATCH_COUNT,
       })
       if (matchError) throw new Error(`match: ${matchError.message}`)
       found = (chunks ?? []) as Chunk[]
@@ -270,8 +316,10 @@ Deno.serve(async (req) => {
 
     const history = summary
       ? [{ role: 'user' as const, text: lang === 'ar' ? 'لخّص ما وجدته في المستندات.' : 'Summarise what you found in the documents.' }]
+      : mode === 'check'
+      ? [{ role: 'user' as const, text: checkRequest }]
       : messages
-    const prompt = buildPrompt(settings, found, product && describeProduct(product, facts), summary, lang)
+    const prompt = buildPrompt(settings, found, product && describeProduct(product, facts), mode, lang)
     const reply = await generate(prompt, history, controller.signal)
     const answer = typeof reply.answer === 'string' ? reply.answer.trim() : ''
     if (!answer) throw new Error('empty answer')
@@ -288,9 +336,13 @@ Deno.serve(async (req) => {
     const { error: saveError } = await db.from('product_chat_messages').insert(rows)
     if (saveError) console.error('save failed', saveError.message)
 
-    return json(200, { answer, sources })
+    return json(200, { answer, sources, ...(mode === 'check' ? { checks: { used: await checksUsed(), limit: checkLimit, renews } } : {}) })
   } catch (err) {
     console.error('product-chat failed', err instanceof Error ? err.message : err)
+    if (mode === 'check') {
+      const { error: releaseError } = await admin.rpc('release_instant_check', { p_company: companyId })
+      if (releaseError) console.error('release failed', releaseError.message)
+    }
     return json(502, { error: 'The assistant could not answer just now. Please try again in a minute.' })
   } finally {
     clearTimeout(timer)

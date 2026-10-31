@@ -15,6 +15,7 @@ import { Bubble, SourceList } from './PublicChat'
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/product-chat`
 const PUBLIC_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
 
+type Checks = { used: number; limit: number; renews: string }
 type Message = { role: 'user' | 'assistant'; text: string; sources?: Source[]; notice?: boolean }
 
 const TEXT = {
@@ -52,6 +53,12 @@ const TEXT = {
     stored: 'This conversation is kept for 30 days.',
     tooLong: (max: number) => `Please keep your question under ${max} characters.`,
     limited: 'You have reached today’s limit of questions. It resets at midnight UAE time, or contact us:',
+    runCheck: 'Run instant check',
+    checking: 'Checking the product against the rules. This takes up to a minute…',
+    checksLeft: (left: number, limit: number) => `Free: ${left} of ${limit} instant checks left this month for your company.`,
+    checkLimited: (limit: number, renews: string) =>
+      `Your company has used this month’s ${limit} free instant checks. They renew on ${renews}. For more checks, or a check confirmed by our experts, contact us:`,
+    checkFailed: 'The instant check did not finish, so it was not counted. Please try again in a minute.',
     failed: 'Sorry, I could not answer just now. Please try again in a minute.',
     email: 'Email',
     whatsapp: 'WhatsApp',
@@ -88,10 +95,26 @@ const TEXT = {
     stored: 'تُحفظ هذه المحادثة لمدة 30 يوماً.',
     tooLong: (max: number) => `يرجى ألا يتجاوز سؤالك ${max} حرفاً.`,
     limited: 'وصلت إلى الحد اليومي للأسئلة. يتجدد عند منتصف الليل بتوقيت الإمارات، أو تواصل معنا:',
+    runCheck: 'إجراء فحص فوري',
+    checking: 'جارٍ فحص المنتج مقابل المتطلبات. يستغرق ذلك حتى دقيقة…',
+    checksLeft: (left: number, limit: number) => `مجاناً: تبقّى ${left} من ${limit} فحوصات فورية هذا الشهر لشركتك.`,
+    checkLimited: (limit: number, renews: string) =>
+      `استخدمت شركتك الفحوصات الفورية المجانية لهذا الشهر (${limit}). تتجدد في ${renews}. لمزيد من الفحوصات، أو لفحص يؤكده خبراؤنا، تواصل معنا:`,
+    checkFailed: 'لم يكتمل الفحص الفوري، لذلك لم يُحتسب. يرجى المحاولة بعد دقيقة.',
     failed: 'عذراً، تعذّرت الإجابة الآن. يرجى المحاولة بعد دقيقة.',
     email: 'البريد الإلكتروني',
     whatsapp: 'واتساب',
   },
+}
+
+// "1 December" / "1 ديسمبر" from 2026-12-01.
+function formatDay(isoDay: string, lang: Lang): string {
+  if (!isoDay) return ''
+  return new Date(`${isoDay}T12:00:00Z`).toLocaleDateString(lang === 'ar' ? 'ar-AE' : 'en-GB', {
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'Asia/Dubai',
+  })
 }
 
 type UploadResult = { error: string | null; uploaded: number }
@@ -129,6 +152,8 @@ export default function AppChat({
   const [offerRead, setOfferRead] = useState(false)
   const [contactShown, setContactShown] = useState(false)
   const [dragging, setDragging] = useState(false)
+  // This month's free instant checks for the company (REG-269); null until known.
+  const [checks, setChecks] = useState<Checks | null>(null)
   // The product's updated_at when a reading started from the chat; the summary waits for it to change.
   const [awaitingSummaryFrom, setAwaitingSummaryFrom] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -156,6 +181,21 @@ export default function AppChat({
     }
   }, [companyId, productId])
 
+  // How many free instant checks are left, shown under the button. Product pages only.
+  useEffect(() => {
+    if (!productId || !open) return
+    let active = true
+    call({ mode: 'check_status' })
+      .then(({ status, body }) => {
+        if (active && status === 200 && body.checks) setChecks(body.checks as Checks)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, productId, open])
+
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, busy, offerRead, open])
@@ -176,7 +216,12 @@ export default function AppChat({
   }
 
   function handleReply(status: number, body: Record<string, unknown>, failedText: string) {
-    if (status === 429 && body.limited) {
+    if (body.checks) setChecks(body.checks as Checks)
+    if (status === 429 && body.limited === 'check_limit') {
+      const c = body.checks as Checks | undefined
+      setContactShown(true)
+      say(t.checkLimited(c?.limit ?? checks?.limit ?? 0, formatDay(c?.renews ?? checks?.renews ?? '', lang)))
+    } else if (status === 429 && body.limited) {
       setContactShown(true)
       say(t.limited)
     } else if (status === 200 && typeof body.answer === 'string') {
@@ -277,6 +322,20 @@ export default function AppChat({
     }
   }
 
+  async function runCheck() {
+    if (busy || reading) return
+    setMessages((m) => [...m, { role: 'user', text: t.runCheck }])
+    setBusy(t.checking)
+    try {
+      const { status, body } = await call({ mode: 'check', facts, messages: [] })
+      handleReply(status, body, t.checkFailed)
+    } catch {
+      say(t.checkFailed)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   function switchLang() {
     const next = lang === 'en' ? 'ar' : 'en'
     setLang(next)
@@ -313,6 +372,8 @@ export default function AppChat({
   )
   const blocked = !!busy || reading
   const canReview = !!onReviewAndFill && !!product && product.status !== 'draft' && !reading
+  const canCheck = !!product && product.status !== 'draft' && !reading
+  const checksLeft = checks ? Math.max(checks.limit - checks.used, 0) : null
 
   return (
     <div
@@ -380,17 +441,36 @@ export default function AppChat({
       </div>
 
       <div className="border-t border-hairline bg-canvas px-4 pb-3 pt-3">
-        {canReview && (
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false)
-              onReviewAndFill()
-            }}
-            className="mb-2 w-full rounded-full border border-primary px-4 py-2 font-text text-[14px] text-primary active:scale-95 transition-transform"
-          >
-            {t.review}
-          </button>
+        {(canCheck || canReview) && (
+          <div className="mb-2 flex gap-2">
+            {canCheck && (
+              <button
+                type="button"
+                onClick={runCheck}
+                disabled={blocked || checksLeft === 0}
+                className="flex-1 rounded-full bg-primary px-4 py-2 font-text text-[14px] text-on-primary disabled:opacity-40 active:scale-95 transition-transform"
+              >
+                {t.runCheck}
+              </button>
+            )}
+            {canReview && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onReviewAndFill()
+                }}
+                className="flex-1 rounded-full border border-primary px-4 py-2 font-text text-[14px] text-primary active:scale-95 transition-transform"
+              >
+                {t.review}
+              </button>
+            )}
+          </div>
+        )}
+        {canCheck && checks && checksLeft !== null && (
+          <p className="mb-2 font-text text-[12px] leading-[1.35] text-ink-muted-48">
+            {checksLeft > 0 ? t.checksLeft(checksLeft, checks.limit) : t.checkLimited(checks.limit, formatDay(checks.renews, lang))}
+          </p>
         )}
         <div className="flex items-end gap-2">
           <button
