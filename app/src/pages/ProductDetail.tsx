@@ -6,6 +6,7 @@ import ProductDocumentsPanel from '../components/ProductDocumentsPanel'
 import ExtractionReviewForm from '../components/ExtractionReviewForm'
 import MontajiFillPanel from '../components/MontajiFillPanel'
 import AppChat from '../components/AppChat'
+import RegulatoryCheckPanel from '../components/RegulatoryCheckPanel'
 import { supabase } from '../lib/supabase'
 import { documentWarnings as montajiDocumentWarnings } from '../lib/montajiFields'
 import { documentChecklist } from '../lib/documentChecklist'
@@ -308,6 +309,10 @@ export default function ProductDetail() {
                     onSave={handleSaveReview}
                   />
                 </div>
+              )}
+
+              {product.status !== 'draft' && (
+                <RegulatoryCheckPanel productId={product.id} canRun={!extracting} />
               )}
 
               {FILLABLE_STATUSES.includes(product.status) && (

@@ -128,6 +128,8 @@ export default function ExtractionReviewForm({
         .map((i) => ({
           inci_name: i.inci_name.trim(),
           percentage: i.percentage?.trim() || undefined,
+          // Not shown in the form; kept for the regulatory check, which matches banned lists by CAS.
+          cas_number: i.cas_number?.trim() || undefined,
         })),
     }
   }

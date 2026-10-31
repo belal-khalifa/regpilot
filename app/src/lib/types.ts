@@ -80,6 +80,8 @@ export type ProductDocument = {
 export type ExtractedIngredient = {
   inci_name: string
   percentage?: string
+  // From the formula or ingredient report when it lists one; the regulatory check matches it.
+  cas_number?: string
 }
 
 // One sellable variant under a product. Montaji registers each shade / scent / size as its own
@@ -129,4 +131,40 @@ export type ExtractedProductData = {
   montaji_sub_category?: string
   classification_confidence?: 'high' | 'medium' | 'low'
   notes?: string
+}
+
+// ---------------------------------------------------------------- regulatory check (REG-255)
+
+export type FindingStatus = 'pass' | 'issue' | 'needs_expert'
+export type FindingArea = 'claims' | 'label' | 'ingredients' | 'certificates'
+
+export type RegulatoryCheck = {
+  id: string
+  company_id: string
+  product_id: string
+  status: 'running' | 'under_review' | 'confirmed' | 'failed'
+  guideline: string
+  sources: Array<{ id: string; title: string; version: string; rules_version?: string }>
+  error: string | null
+  created_at: string
+  finished_at: string | null
+  confirmed_at: string | null
+}
+
+export type RegulatoryFinding = {
+  id: number
+  check_id: string
+  position: number
+  area: FindingArea
+  item: string
+  status: FindingStatus
+  explanation: string
+  evidence: string
+  changes_product_type: boolean
+  clause: string
+  source_title: string
+  source_version: string
+  source_label: string
+  expert_status: FindingStatus | null
+  expert_note: string | null
 }

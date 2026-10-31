@@ -266,6 +266,144 @@ def eu_passages(xhtml_bytes):
     return passages
 
 
+# ---------------------------------------------------------------- EU ingredient rules (REG-261)
+
+RULE_ANNEXES = ('Annex II', 'Annex III', 'Annex IV', 'Annex V', 'Annex VI')
+# Column positions of each annex table, after merged header cells are spread out.
+RULE_COLUMNS = {
+    'Annex II': {'chemical_name': 1, 'cas': 2, 'ec': 3},
+    'Annex III': {'chemical_name': 1, 'inci': 2, 'cas': 3, 'ec': 4, 'product_type': 5, 'max_concentration': 6, 'other': 7, 'warnings': 8},
+    'Annex IV': {'chemical_name': 1, 'inci': 2, 'cas': 3, 'ec': 4, 'product_type': 6, 'max_concentration': 7, 'other': 8, 'warnings': 9},
+    'Annex V': {'chemical_name': 1, 'inci': 2, 'cas': 3, 'ec': 4, 'product_type': 5, 'max_concentration': 6, 'other': 7, 'warnings': 8},
+    'Annex VI': {'chemical_name': 1, 'inci': 2, 'cas': 3, 'ec': 4, 'product_type': 5, 'max_concentration': 6, 'other': 7, 'warnings': 8},
+}
+
+
+def normalise_name(name):
+    """The form both this script and the regulatory-check function compare ingredient names in:
+    lower case, letters and digits only, single spaces. Keep in step with normaliseName() in
+    supabase/functions/regulatory-check/rules.ts."""
+    return ' '.join(re.sub(r'[^a-z0-9]+', ' ', name.lower()).split())
+
+
+def table_grid(table):
+    """The rows of an XHTML table as lists of cell texts, with rowspan and colspan cells repeated in
+    every row and column they cover. Paragraphs inside a cell stay on separate lines."""
+    grid, carried = [], {}
+    for tr in table.findall(f'.//{XHTML}tr'):
+        row, col = {}, 0
+        cells = tr.findall(f'{XHTML}td')
+        i = 0
+        while i < len(cells) or (col in carried and carried[col][1] > 0):
+            if col in carried and carried[col][1] > 0:
+                row[col] = carried[col][0]
+                carried[col][1] -= 1
+                col += 1
+                continue
+            td = cells[i]
+            i += 1
+            paragraphs = [clean(''.join(p.itertext())) for p in td.findall(f'.//{XHTML}p')]
+            text = '\n'.join(p for p in paragraphs if p) if paragraphs else clean(''.join(td.itertext()))
+            for _ in range(int(td.get('colspan', 1))):
+                row[col] = text
+                if int(td.get('rowspan', 1)) > 1:
+                    carried[col] = [text, int(td.get('rowspan', 1)) - 1]
+                col += 1
+        grid.append([row.get(c, '') for c in range(max(row) + 1)] if row else [])
+    return grid
+
+
+def rule_names(annex, chemical_name, inci):
+    """The ingredient names an entry can be recognised by, normalised. Lists in a cell are split on
+    new lines and semicolons (and on ', ' in the glossary-name column, where names never contain it)."""
+    names = set()
+    parts = re.split(r'[\n;]', chemical_name)
+    parts += re.split(r'[\n;]|, (?=[A-Za-z])', inci)
+    for part in parts:
+        part = re.sub(r'\(\d+\)|\(INN\)|\(XAN\)', ' ', part).strip(' .')
+        # "Salicylic acid and its salts" is also known as "Salicylic acid".
+        base = re.split(r',? (?:and|its|their) (?:its |their )?(?:salts|esters|ethers)\b', part)[0]
+        for name in {part, base, *(p for p in part.split('/') if len(p.strip()) >= 4)}:
+            n = normalise_name(name)
+            if len(n) >= 3 and not re.fullmatch(r'[\d ]+', n):
+                names.add(n)
+            if annex == 'Annex IV' and re.fullmatch(r'\d{5}', name.strip()):
+                names.add(f'ci {name.strip()}')  # colour index numbers appear as "CI 77891" on labels
+    return sorted(names)
+
+
+def eu_ingredient_rules(xhtml_bytes):
+    """One rule per row of Annexes II to VI: the substance, its names and CAS numbers, and for the
+    restricted lists the product type, maximum concentration, other conditions and label warnings.
+    An entry with several product types gives one rule per product type."""
+    root = ET.fromstring(xhtml_bytes)
+    container = root.find(f'.//{XHTML}div[@class="eli-container"]')
+    tables, annex = {}, None
+    for element in container.iter():
+        if element.get('class') == 'title-annex-1':
+            annex = clean(''.join(element.itertext())).replace('ANNEX', 'Annex')
+        elif annex in RULE_ANNEXES and element.tag == f'{XHTML}table':
+            tables.setdefault(annex, []).append(element)
+
+    rules = []
+    for name in RULE_ANNEXES:
+        if name not in tables:
+            raise RuntimeError(f'EU text has no table for {name}; the format may have changed')
+        # Annex V has two small tables of definitions first; the list is the largest table.
+        grid = table_grid(max(tables[name], key=lambda t: len(t.findall(f'.//{XHTML}tr'))))
+        columns = RULE_COLUMNS[name]
+        seen_rows = set()
+        for row in grid[3:]:
+            if not row:
+                continue
+            row = row + [''] * (max(columns.values()) + 1 - len(row))
+            ref = row[0].strip()
+            if not re.fullmatch(r'\d+[a-z]?', ref):
+                # A row without a number continues the entry above (more names or CAS numbers).
+                if rules and rules[-1]['annex'] == name and not ref and any(row[1:]):
+                    last = rules[-1]
+                    for field in ('chemical_name', 'inci', 'cas', 'ec', 'other', 'warnings'):
+                        extra = row[columns[field]] if field in columns else ''
+                        if extra and extra not in last.get(field, ''):
+                            last[field] = (last.get(field, '') + '\n' + extra).strip()
+                    last['names'] = rule_names(name, last['chemical_name'], last.get('inci', ''))
+                continue
+            values = {field: row[col].strip() for field, col in columns.items()}
+            if not values['chemical_name'] or set(values['chemical_name']) <= set('—- '):
+                continue  # deleted entry
+            key = (ref, tuple(values.values()))
+            if key in seen_rows:
+                continue
+            seen_rows.add(key)
+            rule = {'annex': name, 'ref': ref, **values}
+            rule['cas'] = rule.get('cas', '')
+            rule['names'] = rule_names(name, rule['chemical_name'], rule.get('inci', ''))
+            rules.append(rule)
+    for rule in rules:
+        rule['cas_numbers'] = sorted(set(re.findall(r'\b\d{2,7}-\d{2}-\d\b', rule['cas'])))
+    return rules
+
+
+def rules_version_loaded():
+    rows = rest('GET', 'ingredient_rule_versions?select=version') or []
+    return rows[0]['version'] if rows else None
+
+
+def load_rules(celex, rules):
+    """Replaces the rules table with this version's rules, then switches the current version."""
+    rows = [{
+        'version': celex, 'annex': r['annex'], 'ref': r['ref'], 'chemical_name': r['chemical_name'],
+        'inci_name': r.get('inci', ''), 'cas_numbers': r['cas_numbers'], 'names': r['names'],
+        'product_type': r.get('product_type', ''), 'max_concentration': r.get('max_concentration', ''),
+        'other_conditions': r.get('other', ''), 'warnings': r.get('warnings', ''),
+    } for r in rules]
+    rest('DELETE', f'ingredient_rules?version=eq.{urllib.parse.quote(celex)}')
+    for i in range(0, len(rows), 500):
+        rest('POST', 'ingredient_rules', rows[i:i + 500], {'Prefer': 'return=minimal'})
+    rest('POST', 'rpc/finish_ingredient_rules', {'p_version': celex})
+    print(f'  loaded {len(rows)} ingredient rules')
+
+
 # ---------------------------------------------------------------- Dubai Municipality guidelines
 
 def fix_arabic(text):
@@ -452,6 +590,21 @@ def run(force):
     else:
         print('  already loaded')
 
+    # The fixed-rules table for the regulatory check (REG-261) follows the same EU version. It needs
+    # no AI, so it is reloaded whenever it is missing or older, even if the passages are current.
+    try:
+        rules_version = rules_version_loaded()
+    except RuntimeError as err:
+        rules_version = celex  # the table does not exist yet (its SQL has not been run): skip quietly
+        print(f'  ingredient rules skipped: {err}')
+    if force or rules_version != celex:
+        print('EU ingredient rules: loading')
+        xhtml = xhtml if 'xhtml' in locals() else download_eu_text(cellar_id)
+        rules = eu_ingredient_rules(xhtml)
+        load_rules(celex, rules)
+        report.append(f'### Ingredient rules for the regulatory check\nLoaded {len(rules)} rules from Annexes II to VI '
+                      f'of version {celex}. An expert should spot-check a sample before relying on them.')
+
     print('Dubai Municipality guidelines: checking the reference-documents bucket')
     files = http('POST', f'{SUPABASE_URL}/storage/v1/object/list/{BUCKET}',
                  {'prefix': '', 'limit': 1000, 'sortBy': {'column': 'name', 'order': 'asc'}}, supabase_headers()) or []
@@ -492,6 +645,14 @@ def dry_run(eu_file, dm_dir):
         print(f'EU: {len(passages)} passages')
         for label, text in passages[:3] + [p for p in passages if p[0].startswith('Annex III, entry 75')]:
             print(f'--- {label}\n{text[:400]}')
+        with open(eu_file, 'rb') as f:
+            rules = eu_ingredient_rules(f.read())
+        counts = {}
+        for r in rules:
+            counts[r['annex']] = counts.get(r['annex'], 0) + 1
+        print(f'EU ingredient rules: {len(rules)}', counts)
+        for r in [r for r in rules if r['ref'] in ('98', '29') and r['annex'] in ('Annex III', 'Annex V')][:4]:
+            print(json.dumps(r, ensure_ascii=False)[:600])
     if dm_dir:
         for name in sorted(os.listdir(dm_dir)):
             if not name.lower().endswith('.pdf'):

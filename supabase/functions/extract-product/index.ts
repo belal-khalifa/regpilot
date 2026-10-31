@@ -74,7 +74,7 @@ Read all the attached documents carefully and extract:
 
 PRODUCT
 - product_name, product_type (free text such as "Lip Gloss"), brand_name, and country_of_origin (the country where the product is manufactured, as a plain English country name).
-- The full ingredient list in INCI naming, with percentage if stated.
+- The full ingredient list in INCI naming, with percentage if stated and the CAS number if the formula or ingredient report gives one (leave it out otherwise; never guess one).
 - manufacturer_name, manufacturer_country and manufacturer_address.
 - certificate_number and certificate_issuing_country, if a Certificate of Free Sale or GMP certificate is present.
 - Notable label claims (e.g. "paraben-free", "SPF 30").
@@ -130,6 +130,7 @@ const EXTRACTION_SCHEMA = {
         properties: {
           inci_name: { type: 'STRING' },
           percentage: { type: 'STRING' },
+          cas_number: { type: 'STRING' },
         },
         required: ['inci_name'],
       },
