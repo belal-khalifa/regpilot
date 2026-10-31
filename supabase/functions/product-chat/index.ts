@@ -43,6 +43,21 @@ const COMMON_WORDS = new Set(
   'about above after again allowed approval before being below between could cosmetic cosmetics does dubai during every label labels labelling municipality other product products register registration regulation should their there these those under using which while would where what when guideline guidelines required requirements please'.split(' '),
 )
 
+// The product's ingredient names and claims, so a question like "does it meet the rules?" also finds
+// the passages about those ingredients and claims.
+function productTerms(p: ProductContext | null): { words: string; meaning: string } {
+  const data = (p?.extracted_data ?? {}) as { ingredients?: Array<{ inci_name?: string }>; label_claims?: string[]; product_type?: string }
+  const names = (data.ingredients ?? [])
+    .map((i) => (i.inci_name ?? '').replace(/["()]/g, ' ').trim())
+    .filter((n) => /[A-Za-z]{4,}/.test(n) && !/^aqua\b|^water\b|^parfum\b|^fragrance\b/i.test(n))
+    .slice(0, 15)
+  const claims = (data.label_claims ?? []).slice(0, 8).join('; ')
+  return {
+    words: names.map((n) => `"${n}"`).join(' or '),
+    meaning: p ? ` (Product: ${data.product_type ?? p.name}${claims ? `; label claims: ${claims}` : ''})` : '',
+  }
+}
+
 // Ingredient names and CAS numbers in the question, for the exact-word half of the search.
 function exactTerms(question: string): string {
   const cas = question.match(/\b\d{2,7}-\d{2}-\d\b/g) ?? []
@@ -131,7 +146,7 @@ function buildPrompt(settings: Record<string, string>, chunks: Chunk[], product:
     .map((c, i) => `[S${i + 1}] ${c.title}, version ${c.version}. ${c.label}\n${c.content}`)
     .join('\n\n')
   const task = summary
-    ? `TASK: The client has just had their documents read. Write a short summary in ${lang === 'ar' ? 'Arabic' : 'English'} for a busy regulatory manager, written like a helpful colleague: what the product is (name, brand, type, Montaji category), the useful details found (country of origin, manufacturer, shelf life, number of ingredients and variants), which documents were recognised, and what is missing or needs a closer look (use the checks listed; if there are none, say everything needed was found). Finish with the next step in one sentence: press Review and fill to check the data and fill Montaji. A short intro line plus a short list is ideal. Do not repeat disclaimers (the chat already shows one) and do not use the reference passages unless a check needs a rule explained.`
+    ? `TASK: The client has just had their documents read. Write a short summary in ${lang === 'ar' ? 'Arabic' : 'English'} for a busy regulatory manager, written like a helpful colleague: what the product is (name, brand, type, Montaji category), the useful details found (country of origin, manufacturer, shelf life, number of ingredients and variants), which documents were recognised, and what is missing or needs a closer look (use the checks listed; if there are none, say everything needed was found). Finish with the next step in one sentence: press Review and fill to check the data and fill Montaji, or ask here for an instant check against the rules. A short intro line plus a short list is ideal. Do not repeat disclaimers (the chat already shows one) and do not use the reference passages unless a check needs a rule explained.`
     : `TASK: Answer the client's last message.`
   return `You are RegPilot's assistant inside the RegPilot app. The client is signed in and is a company registering cosmetic, personal care, fragrance and similar products with Dubai Municipality on Montaji.
 
@@ -143,7 +158,7 @@ Rules:
 1. Reply in the language of the client's last message (Arabic or English). Quote rules faithfully; you may translate a passage, but keep numbers, percentages and names exact.
 2. For every rule you state, name its source in the sentence, e.g. "The DM Technical Guidelines for Cosmetic and Personal Care Products (GU116), section 7.1, require ...". List the passage ids you relied on in used_sources.
 3. Talk freely and helpfully about this client's product: explain what the reading found, which documents are missing, and what a warning means, in plain words. The chat already shows a disclaimer under every answer, so do not add "preliminary" or "please check" caveats to your answers.
-4. Never say a product is compliant, will be approved or will pass. If asked, explain the general rule with its source and say RegPilot's regulatory check, confirmed by our experts, is coming soon; the team can be contacted meanwhile.
+4. When the client asks whether the product meets the rules (instant feedback), give it: go through what the reading found (ingredients and their percentages, label claims, label details such as dates, batch and period after opening, the certificate) against the reference passages, and list for each point either "looks fine" or "possible issue", with the rule and its source. Say plainly when the passages don't cover a point, rather than skipping it. Call the result an instant preliminary check: never say the product is approved, will be approved or is guaranteed to pass, and end with one line that RegPilot's experts can confirm it in a full regulatory check.
 5. Be as useful as the material allows. Apply a passage sensibly to the question (for example, a rule about what the label must show answers a question about packaging), and give a direct, practical answer first, then its source. If the material covers only part of the question, answer that part and say in one short sentence which part the references don't cover. Only if nothing in the material helps, say you cannot confirm it from RegPilot's references and offer the contact details. Never invent rules, numbers or limits.
 6. You cannot fill, change, submit or save anything. To fill Montaji, the client presses the Review and fill button on the product page and uses the Filling tool; the client always submits on Montaji themselves. Never say RegPilot submits on a client's behalf.
 7. To add documents, the client drops them into this chat or the Documents area of the product page. On the dashboard, a drop starts a new product. One product per drop.
@@ -242,11 +257,12 @@ Deno.serve(async (req) => {
   try {
     let found: Chunk[] = []
     if (!summary) {
-      const embedding = await embedQuestion(question, controller.signal)
+      const terms = productTerms(product)
+      const embedding = await embedQuestion(question + terms.meaning, controller.signal)
       const { data: chunks, error: matchError } = await db.rpc('match_reference_chunks', {
         query_embedding: `[${embedding.join(',')}]`,
-        query_text: exactTerms(question),
-        match_count: MATCH_COUNT,
+        query_text: [exactTerms(question), terms.words].filter(Boolean).join(' or '),
+        match_count: product ? MATCH_COUNT + 4 : MATCH_COUNT,
       })
       if (matchError) throw new Error(`match: ${matchError.message}`)
       found = (chunks ?? []) as Chunk[]
