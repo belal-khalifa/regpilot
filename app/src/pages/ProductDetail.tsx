@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import GlobalNav from '../components/GlobalNav'
 import StatusSelect from '../components/StatusSelect'
 import ProductDocumentsPanel from '../components/ProductDocumentsPanel'
 import ExtractionReviewForm from '../components/ExtractionReviewForm'
 import MontajiFillPanel from '../components/MontajiFillPanel'
+import AppChat from '../components/AppChat'
 import { supabase } from '../lib/supabase'
 import { documentWarnings as montajiDocumentWarnings } from '../lib/montajiFields'
+import { documentChecklist } from '../lib/documentChecklist'
 import { useProductDocuments } from '../lib/useProductDocuments'
 import type { ExtractedProductData, Product, ProductStatus } from '../lib/types'
 
@@ -32,6 +34,12 @@ const FILLABLE_STATUSES: ProductStatus[] = ['ready_to_fill', 'submitted', 'appro
 
 export default function ProductDetail() {
   const { id } = useParams<{ id: string }>()
+  const location = useLocation()
+  const navigate = useNavigate()
+  // Documents dropped on the dashboard chat, handed to this page's chat to upload.
+  const [incomingFiles] = useState<File[] | undefined>(
+    () => (location.state as { chatFiles?: File[] } | null)?.chatFiles,
+  )
   const [product, setProduct] = useState<Product | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -59,22 +67,25 @@ export default function ProductDetail() {
     return () => clearInterval(timer)
   }, [extracting])
 
-  function loadProduct() {
+  async function loadProduct() {
     if (!id) return
     setLoading(true)
-    supabase
-      .from('products')
-      .select('*')
-      .eq('id', id)
-      .single()
-      .then(({ data, error }) => {
-        if (error) setError(error.message)
-        else setProduct(data as Product)
-        setLoading(false)
-      })
+    const { data, error } = await supabase.from('products').select('*').eq('id', id).single()
+    if (error) setError(error.message)
+    else setProduct(data as Product)
+    setLoading(false)
   }
 
-  useEffect(loadProduct, [id])
+  useEffect(() => {
+    loadProduct()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  // Forget the handed-over files once taken, so reloading the page does not upload them again.
+  useEffect(() => {
+    if (incomingFiles) navigate(location.pathname, { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Uploads a drop one file at a time, unsorted. Reading starts only when the person presses the button,
   // so they can add more documents for the same product first.
@@ -94,13 +105,14 @@ export default function ProductDetail() {
     return { error: failure, uploaded }
   }
 
-  async function handleExtract() {
-    if (!id) return
+  // Returns whether the reading finished, so the chat knows to explain the result.
+  async function handleExtract(): Promise<boolean> {
+    if (!id) return false
     if (product && product.status !== 'draft') {
       const proceed = window.confirm(
         'This product already has extracted or edited data. Re-running extraction will overwrite it with a fresh AI read of the current documents. Continue?',
       )
-      if (!proceed) return
+      if (!proceed) return false
     }
     setExtracting(true)
     setExtractError(null)
@@ -109,8 +121,9 @@ export default function ProductDetail() {
     if (!token) {
       setExtractError('Your session expired — please sign in again.')
       setExtracting(false)
-      return
+      return false
     }
+    let finished = false
     try {
       const res = await fetch(EXTRACT_URL, {
         method: 'POST',
@@ -134,7 +147,8 @@ export default function ProductDetail() {
             `The extraction service answered with an error (HTTP ${res.status}). ${text.replace(/<[^>]*>/g, ' ').trim().slice(0, 160)}`,
         )
       } else if (!body.error) {
-        loadProduct()
+        await loadProduct()
+        finished = true
       } else {
         setExtractError(body.error)
       }
@@ -150,6 +164,7 @@ export default function ProductDetail() {
       }, 60_000)
     }
     setExtracting(false)
+    return finished
   }
 
   async function handleSaveReview(
@@ -183,6 +198,22 @@ export default function ProductDetail() {
   }
 
   const extractedData = product?.extracted_data as ExtractedProductData | undefined
+
+  // What the page itself flags, given to the chat so its summary says the same thing.
+  const chatFacts =
+    product && product.status !== 'draft'
+      ? [
+          ...documentChecklist(documents, extractedData ?? {})
+            .filter((item) => item.files.length === 0)
+            .map((item) => `Missing document: ${item.label}. ${item.hint}`),
+          ...documentWarnings(extractedData ?? {}),
+        ]
+      : []
+
+  function scrollToReviewAndFill() {
+    const target = document.getElementById('montaji-fill') ?? document.getElementById('review-form')
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   return (
     <div>
@@ -270,20 +301,36 @@ export default function ProductDetail() {
               )}
 
               {product.status !== 'draft' && (
-                <ExtractionReviewForm
-                  key={product.updated_at}
-                  initialData={extractedData ?? {}}
-                  onSave={handleSaveReview}
-                />
+                <div id="review-form" className="scroll-mt-6">
+                  <ExtractionReviewForm
+                    key={product.updated_at}
+                    initialData={extractedData ?? {}}
+                    onSave={handleSaveReview}
+                  />
+                </div>
               )}
 
               {FILLABLE_STATUSES.includes(product.status) && (
-                <MontajiFillPanel
-                  productName={product.name}
-                  data={extractedData ?? {}}
-                  documents={documents}
-                />
+                <div id="montaji-fill" className="scroll-mt-6">
+                  <MontajiFillPanel
+                    productName={product.name}
+                    data={extractedData ?? {}}
+                    documents={documents}
+                  />
+                </div>
               )}
+
+              <AppChat
+                companyId={product.company_id}
+                product={product}
+                documents={documents}
+                facts={chatFacts}
+                reading={extracting}
+                incomingFiles={incomingFiles}
+                onFiles={handleDroppedFiles}
+                onRead={handleExtract}
+                onReviewAndFill={scrollToReviewAndFill}
+              />
             </>
           )}
         </div>

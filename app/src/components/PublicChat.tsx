@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSiteSettings, whatsappLink } from '../lib/useSiteSettings'
+import { initialLang, rememberLang, type Lang, type Source } from '../lib/chatLanguage'
 
 // The public chatbot on the home page (REG-276). Talks to the public-chat Supabase function, which
 // answers only from RegPilot's services text and the regulation library. No sign-in, no files.
@@ -7,8 +8,6 @@ import { useSiteSettings, whatsappLink } from '../lib/useSiteSettings'
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-chat`
 const PUBLIC_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
 
-type Lang = 'en' | 'ar'
-type Source = { label: string; title: string; version: string; url: string | null }
 type Message = { role: 'user' | 'assistant'; text: string; sources?: Source[]; notice?: boolean }
 
 const TEXT = {
@@ -52,16 +51,6 @@ const TEXT = {
   },
 }
 
-function initialLang(): Lang {
-  try {
-    const saved = localStorage.getItem('regpilot-chat-lang')
-    if (saved === 'en' || saved === 'ar') return saved
-  } catch {
-    // storage may be blocked; fall back to the browser language
-  }
-  return navigator.language?.toLowerCase().startsWith('ar') ? 'ar' : 'en'
-}
-
 export default function PublicChat() {
   const settings = useSiteSettings()
   const [open, setOpen] = useState(false)
@@ -86,11 +75,7 @@ export default function PublicChat() {
   function switchLang() {
     const next = lang === 'en' ? 'ar' : 'en'
     setLang(next)
-    try {
-      localStorage.setItem('regpilot-chat-lang', next)
-    } catch {
-      // not essential
-    }
+    rememberLang(next)
   }
 
   async function send() {
@@ -184,25 +169,7 @@ export default function PublicChat() {
         {messages.map((m, i) => (
           <div key={i} className="flex flex-col gap-1">
             <Bubble role={m.role} text={m.text} />
-            {m.sources && m.sources.length > 0 && (
-              <div className="max-w-[90%] font-text text-[12px] leading-[1.4] text-ink-muted-48">
-                <span className="font-semibold">{t.sources}: </span>
-                {m.sources.map((s, j) => (
-                  <span key={j} dir="ltr">
-                    {j > 0 && '; '}
-                    {s.url ? (
-                      <a className="underline" href={s.url} target="_blank" rel="noreferrer">
-                        {s.title}, {s.label}
-                      </a>
-                    ) : (
-                      <>
-                        {s.title}, {s.label}
-                      </>
-                    )}
-                  </span>
-                ))}
-              </div>
-            )}
+            {m.sources && m.sources.length > 0 && <SourceList label={t.sources} sources={m.sources} />}
           </div>
         ))}
         {contactShown && contact}
@@ -249,7 +216,7 @@ export default function PublicChat() {
   )
 }
 
-function Bubble({ role, text }: { role: 'user' | 'assistant'; text: string }) {
+export function Bubble({ role, text }: { role: 'user' | 'assistant'; text: string }) {
   const mine = role === 'user'
   return (
     <div
@@ -259,6 +226,28 @@ function Bubble({ role, text }: { role: 'user' | 'assistant'; text: string }) {
       }`}
     >
       {text}
+    </div>
+  )
+}
+
+export function SourceList({ label, sources }: { label: string; sources: Source[] }) {
+  return (
+    <div className="max-w-[90%] font-text text-[12px] leading-[1.4] text-ink-muted-48">
+      <span className="font-semibold">{label}: </span>
+      {sources.map((s, j) => (
+        <span key={j} dir="ltr">
+          {j > 0 && '; '}
+          {s.url ? (
+            <a className="underline" href={s.url} target="_blank" rel="noreferrer">
+              {s.title}, {s.label}
+            </a>
+          ) : (
+            <>
+              {s.title}, {s.label}
+            </>
+          )}
+        </span>
+      ))}
     </div>
   )
 }
